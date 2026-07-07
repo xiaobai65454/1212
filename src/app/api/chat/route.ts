@@ -245,22 +245,40 @@ export async function POST(request: NextRequest) {
     });
 
     // 将 AsyncGenerator 转换为 ReadableStream
+    let isClosed = false;
     const readableStream = new ReadableStream({
       async start(controller) {
         try {
           for await (const chunk of llmStream) {
+            if (isClosed) break;
             if (chunk.content) {
               const output = `data: ${JSON.stringify({ content: chunk.content.toString() })}\n\n`;
-              controller.enqueue(encoder.encode(output));
+              try {
+                controller.enqueue(encoder.encode(output));
+              } catch {
+                // Controller 已关闭，停止写入
+                isClosed = true;
+                break;
+              }
             }
           }
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          if (!isClosed) {
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+          }
         } catch (error) {
-          console.error("LLM stream error:", error);
-          controller.error(error);
-        } finally {
-          controller.close();
+          if (!isClosed) {
+            console.error("LLM stream error:", error);
+            try {
+              controller.error(error);
+            } catch {
+              // 忽略已关闭的 controller
+            }
+          }
         }
+      },
+      cancel() {
+        isClosed = true;
       },
     });
 
