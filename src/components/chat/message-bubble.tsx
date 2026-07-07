@@ -54,10 +54,15 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
                 dangerouslySetInnerHTML={{ __html: formattedContent }}
               />
             ) : (
-              isStreaming && <TypingIndicator />
+              isStreaming && <TypingIndicator thinkingTime={message.thinkingTime} />
             )}
             {isStreaming && message.content && (
               <span className="inline-block w-0.5 h-4 bg-[#FF6B4A] animate-pulse ml-0.5 align-text-bottom" />
+            )}
+            {!isStreaming && message.content && message.thinkingTime !== undefined && message.thinkingTime > 0 && (
+              <div className="text-xs text-[#1A1A2E]/30 mt-2 pt-2 border-t border-gray-100">
+                思考耗时 {message.thinkingTime}s
+              </div>
             )}
           </div>
         )}
@@ -66,12 +71,17 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
   );
 }
 
-function TypingIndicator() {
+function TypingIndicator({ thinkingTime }: { thinkingTime?: number }) {
   return (
-    <div className="flex items-center gap-1.5 py-1">
-      <div className="w-1.5 h-1.5 rounded-full bg-[#FF6B4A]/60 animate-bounce [animation-delay:0ms]" />
-      <div className="w-1.5 h-1.5 rounded-full bg-[#FF6B4A]/60 animate-bounce [animation-delay:150ms]" />
-      <div className="w-1.5 h-1.5 rounded-full bg-[#FF6B4A]/60 animate-bounce [animation-delay:300ms]" />
+    <div className="flex items-center gap-2 py-1">
+      <div className="flex items-center gap-1.5">
+        <div className="w-1.5 h-1.5 rounded-full bg-[#FF6B4A]/60 animate-bounce [animation-delay:0ms]" />
+        <div className="w-1.5 h-1.5 rounded-full bg-[#FF6B4A]/60 animate-bounce [animation-delay:150ms]" />
+        <div className="w-1.5 h-1.5 rounded-full bg-[#FF6B4A]/60 animate-bounce [animation-delay:300ms]" />
+      </div>
+      <span className="text-xs text-[#1A1A2E]/50">
+        正在思考{thinkingTime !== undefined && thinkingTime > 0 ? `... ${thinkingTime}s` : "..."}
+      </span>
     </div>
   );
 }

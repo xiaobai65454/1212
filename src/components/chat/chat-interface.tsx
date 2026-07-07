@@ -11,6 +11,7 @@ export interface Message {
     content: string;
     timestamp: Date;
     isStreaming?: boolean;
+    thinkingTime?: number;
 }
 
 export interface KnowledgeBase {
@@ -51,6 +52,7 @@ export function ChatInterface() {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [knowledgeBases] = useState<KnowledgeBase[]>(DEFAULT_KNOWLEDGE_BASES);
     const abortControllerRef = useRef<AbortController | null>(null);
+    const thinkingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const generateId = () => `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
     const toggleKnowledgeBase = useCallback((id: string) => {
@@ -73,7 +75,8 @@ export function ChatInterface() {
             role: "assistant",
             content: "",
             timestamp: new Date(),
-            isStreaming: true
+            isStreaming: true,
+            thinkingTime: 0
         };
 
         setMessages(prev => [...prev, userMessage, assistantMessage]);
@@ -81,6 +84,13 @@ export function ChatInterface() {
         setIsStreaming(true);
         const abortController = new AbortController();
         abortControllerRef.current = abortController;
+
+        // 启动思考计时器
+        let thinkingSeconds = 0;
+        thinkingTimerRef.current = setInterval(() => {
+            thinkingSeconds += 1;
+            setMessages(prev => prev.map(m => m.id === assistantMessage.id ? { ...m, thinkingTime: thinkingSeconds } : m));
+        }, 1000);
 
         try {
             const chatMessages = [...messages, userMessage].map(m => ({
@@ -113,6 +123,7 @@ export function ChatInterface() {
 
             const decoder = new TextDecoder();
             let accumulated = "";
+            let firstChunkReceived = false;
 
             while (true) {
                 const {
@@ -140,6 +151,15 @@ export function ChatInterface() {
                             const parsed = JSON.parse(data);
 
                             if (parsed.content) {
+                                // 收到第一个内容块时停止计时器
+                                if (!firstChunkReceived) {
+                                    firstChunkReceived = true;
+                                    if (thinkingTimerRef.current) {
+                                        clearInterval(thinkingTimerRef.current);
+                                        thinkingTimerRef.current = null;
+                                    }
+                                }
+
                                 accumulated += parsed.content;
 
                                 setMessages(prev => prev.map(m => m.id === assistantMessage.id ? {
@@ -149,6 +169,10 @@ export function ChatInterface() {
                             }
 
                             if (parsed.error) {
+                                if (thinkingTimerRef.current) {
+                                    clearInterval(thinkingTimerRef.current);
+                                    thinkingTimerRef.current = null;
+                                }
                                 setMessages(prev => prev.map(m => m.id === assistantMessage.id ? {
                                     ...m,
                                     content: parsed.error
@@ -159,6 +183,10 @@ export function ChatInterface() {
                 }
             }
         } catch (error: unknown) {
+            if (thinkingTimerRef.current) {
+                clearInterval(thinkingTimerRef.current);
+                thinkingTimerRef.current = null;
+            }
             if (error instanceof Error && error.name === "AbortError")
                 return;
 
@@ -167,6 +195,10 @@ export function ChatInterface() {
                 content: "抱歉，网络出现问题，请重试。"
             } : m));
         } finally {
+            if (thinkingTimerRef.current) {
+                clearInterval(thinkingTimerRef.current);
+                thinkingTimerRef.current = null;
+            }
             setMessages(prev => prev.map(m => m.id === assistantMessage.id ? {
                 ...m,
                 isStreaming: false
