@@ -16,7 +16,7 @@ COPY . .
 RUN corepack enable && corepack prepare pnpm@latest --activate
 RUN pnpm build
 
-# Production image, copy all the files and run next
+# Production image, copy all the files and run
 FROM base AS runner
 WORKDIR /app
 
@@ -25,9 +25,15 @@ ENV NODE_ENV production
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
+# Create data directory for knowledge base
+RUN mkdir -p /app/data/knowledge && chown -R nextjs:nodejs /app/data
+
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Copy server.js and set permissions
+RUN chown -R nextjs:nodejs /app
 
 USER nextjs
 
@@ -35,5 +41,6 @@ EXPOSE 3000
 
 ENV PORT 3000
 ENV HOSTNAME "0.0.0.0"
+ENV KNOWLEDGE_BASE_PATH /app/data/knowledge
 
 CMD ["node", "server.js"]

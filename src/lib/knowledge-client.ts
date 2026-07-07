@@ -6,7 +6,10 @@
 import * as fs from "fs";
 import * as path from "path";
 
-const DATA_DIR = path.join(process.cwd(), "data", "knowledge");
+// 支持通过环境变量配置数据目录，默认使用项目根目录下的 data/knowledge
+const DATA_DIR = process.env.KNOWLEDGE_BASE_PATH 
+  ? path.resolve(process.env.KNOWLEDGE_BASE_PATH)
+  : path.join(process.cwd(), "data", "knowledge");
 
 export interface KnowledgeDoc {
   id: string;

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { streamChat, type ChatMessage } from "@/lib/llm-client";
-import { search as searchKnowledge } from "@/lib/knowledge-client";
+import { search as searchKnowledge, listDocuments } from "@/lib/knowledge-client";
+import { POST as initKnowledge } from "@/app/api/knowledge/init/route";
 
 // 知识库名称映射（ID -> 中文名）
 const KNOWLEDGE_BASE_NAMES: Record<string, string> = {
@@ -203,6 +204,18 @@ function buildSystemPrompt(knowledgeContext: string): string {
 
 export async function POST(request: NextRequest) {
   try {
+    // 自动初始化知识库（如果为空）
+    try {
+      const docs = await listDocuments("business_basics");
+      if (docs.length === 0) {
+        console.log("[Chat] 知识库为空，自动初始化...");
+        await initKnowledge();
+        console.log("[Chat] 知识库初始化完成");
+      }
+    } catch (initError) {
+      console.error("[Chat] 知识库自动初始化失败:", initError);
+    }
+
     const body = await request.json();
     const { messages, knowledgeBases = [] } = body as {
       messages: Array<{ role: string; content: string }>;
@@ -268,6 +281,7 @@ export async function POST(request: NextRequest) {
     ];
 
     // 4. 调用 LLM 流式生成
+    console.log(`[Chat] 调用 LLM, 消息数: ${chatMessages.length}, 知识库上下文长度: ${knowledgeContext.length}`);
     const llmStream = streamChat(chatMessages);
 
     // 5. 转换流格式
