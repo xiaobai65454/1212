@@ -31,6 +31,13 @@ export function WechatPopup() {
             setTimeout(() => {
               setShow(true);
               sessionStorage.setItem("wechat_popup_shown", "true");
+              // Auto copy wechat ID when popup shows
+              if (data.config.wechat.wechatId) {
+                navigator.clipboard.writeText(data.config.wechat.wechatId).then(() => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 3000);
+                }).catch(() => {});
+              }
             }, data.config.wechat.popupDelay || 3000);
           }
         }
@@ -54,9 +61,9 @@ export function WechatPopup() {
         {/* Close Button */}
         <button
           onClick={() => setShow(false)}
-          className="absolute top-3 right-3 p-1.5 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors z-10"
+          className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/10 hover:bg-black/20 flex items-center justify-center text-white hover:text-white transition-colors z-10"
         >
-          <X className="w-4 h-4" />
+          <X className="w-5 h-5 stroke-[2.5]" />
         </button>
 
         {/* Header */}
