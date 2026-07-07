@@ -15,13 +15,15 @@ async function parseFileContent(buffer: Buffer, fileName: string): Promise<strin
 
     case ".pdf": {
       try {
-        const { PDFParse } = await import("pdf-parse");
-        const parser = new PDFParse({ data: buffer });
-        const textResult = await parser.getText();
-        await parser.destroy();
-        return textResult.text;
-      } catch {
-        throw new Error("PDF 解析失败，请确认文件格式正确");
+        const { getDocumentProxy, extractText } = await import("unpdf");
+        const uint8 = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+        const pdf = await getDocumentProxy(uint8);
+        const result = await extractText(pdf, { mergePages: true });
+        return result.text;
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error("[PDF Parse Error]", msg);
+        throw new Error(`PDF 解析失败: ${msg}`);
       }
     }
 
