@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import Link from "next/link";
 
 interface KnowledgeBase {
@@ -9,19 +9,20 @@ interface KnowledgeBase {
   description: string;
   color: string;
   icon: string;
+  documentCount?: number;
 }
 
 type InputType = "text" | "url" | "file";
 type DocType = "text" | "url" | "file";
 
-interface AddedDoc {
+interface StoredDocument {
   id: string;
+  title: string;
   knowledgeBase: string;
   type: DocType;
-  title: string;
-  content: string;
-  createdAt: Date;
-  docIds?: string[];
+  createdAt: string;
+  preview: string;
+  docIds: string[];
 }
 
 const KNOWLEDGE_BASES: KnowledgeBase[] = [
@@ -60,11 +61,78 @@ export default function AdminPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [addedDocs, setAddedDocs] = useState<AddedDoc[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // 知识库文档列表
+  const [storedDocs, setStoredDocs] = useState<StoredDocument[]>([]);
+  const [isLoadingDocs, setIsLoadingDocs] = useState(false);
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>(KNOWLEDGE_BASES);
 
-  const activeKB = KNOWLEDGE_BASES.find((kb) => kb.id === activeTab)!;
+  const activeKB = knowledgeBases.find((kb) => kb.id === activeTab) || KNOWLEDGE_BASES[0];
+
+  // 获取知识库列表和文档数量
+  const fetchKnowledgeBases = useCallback(async () => {
+    try {
+      const res = await fetch("/api/knowledge/manage");
+      const data = await res.json();
+      if (data.success) {
+        setKnowledgeBases(data.knowledgeBases);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // 获取当前知识库的文档列表
+  const fetchDocuments = useCallback(async (kb: string) => {
+    setIsLoadingDocs(true);
+    try {
+      const res = await fetch(`/api/knowledge/manage?docs=true&kb=${kb}`);
+      const data = await res.json();
+      if (data.success) {
+        setStoredDocs(data.documents);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsLoadingDocs(false);
+    }
+  }, []);
+
+  // 删除文档
+  const handleDeleteDoc = useCallback(async (doc: StoredDocument) => {
+    if (!confirm(`确定要删除「${doc.title}」吗？`)) return;
+    
+    try {
+      const res = await fetch("/api/knowledge/manage", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ docIds: doc.docIds }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStoredDocs(prev => prev.filter(d => d.id !== doc.id));
+        fetchKnowledgeBases();
+        setSubmitMessage({ type: "success", text: "知识已删除" });
+      } else {
+        setSubmitMessage({ type: "error", text: data.error || "删除失败" });
+      }
+    } catch {
+      setSubmitMessage({ type: "error", text: "删除失败" });
+    }
+  }, [fetchKnowledgeBases]);
+
+  // 初始加载
+  useEffect(() => {
+    fetchKnowledgeBases();
+    fetchDocuments(activeTab);
+  }, []);
+
+  // 切换知识库时重新加载文档
+  useEffect(() => {
+    fetchDocuments(activeTab);
+  }, [activeTab, fetchDocuments]);
 
   const handleFileSelect = useCallback((file: File) => {
     const ext = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
@@ -151,38 +219,15 @@ export default function AdminPage() {
       const data = await res.json();
 
       if (data.success) {
-        const docTitle =
-          inputType === "file"
-            ? selectedFile?.name.replace(/\.[^.]+$/, "") || "上传文件"
-            : inputType === "url"
-              ? url.trim()
-              : title.trim() || "未命名文档";
-
-        const docContent =
-          inputType === "file"
-            ? `文件: ${selectedFile?.name} (${(selectedFile?.size || 0 / 1024).toFixed(1)}KB)`
-            : inputType === "url"
-              ? url.trim()
-              : content.trim().slice(0, 100) + (content.trim().length > 100 ? "..." : "");
-
         setSubmitMessage({ type: "success", text: data.message || "知识添加成功！智能体已学习新知识" });
-        setAddedDocs((prev) => [
-          {
-            id: `doc_${Date.now()}`,
-            knowledgeBase: activeTab,
-            type: inputType as DocType,
-            title: docTitle,
-            content: docContent,
-            createdAt: new Date(),
-            docIds: data.docIds,
-          },
-          ...prev,
-        ]);
         setTitle("");
         setContent("");
         setUrl("");
         setSelectedFile(null);
         if (fileInputRef.current) fileInputRef.current.value = "";
+        // 刷新文档列表和知识库信息
+        fetchDocuments(activeTab);
+        fetchKnowledgeBases();
       } else {
         setSubmitMessage({ type: "error", text: data.error || "添加失败" });
       }
@@ -192,8 +237,6 @@ export default function AdminPage() {
       setIsSubmitting(false);
     }
   }, [activeTab, inputType, content, url, title, selectedFile]);
-
-  const filteredDocs = addedDocs.filter((d) => d.knowledgeBase === activeTab);
 
   const getTypeLabel = (type: DocType) => {
     switch (type) {
@@ -209,6 +252,21 @@ export default function AdminPage() {
       case "file": return "bg-purple-50 text-purple-600";
       default: return "bg-orange-50 text-orange-600";
     }
+  };
+
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+    
+    if (minutes < 1) return "刚刚";
+    if (minutes < 60) return `${minutes}分钟前`;
+    if (hours < 24) return `${hours}小时前`;
+    if (days < 7) return `${days}天前`;
+    return date.toLocaleDateString("zh-CN");
   };
 
   return (
@@ -244,7 +302,7 @@ export default function AdminPage() {
       <main className="max-w-5xl mx-auto px-6 py-8">
         {/* Knowledge Base Tabs */}
         <div className="flex gap-3 mb-8 overflow-x-auto pb-2">
-          {KNOWLEDGE_BASES.map((kb) => (
+          {knowledgeBases.map((kb) => (
             <button
               key={kb.id}
               onClick={() => { setActiveTab(kb.id); setSubmitMessage(null); }}
@@ -259,9 +317,16 @@ export default function AdminPage() {
                 style={{ backgroundColor: kb.color }}
               />
               <div className="text-left">
-                <p className={`text-sm font-medium ${activeTab === kb.id ? "text-[#1A1A2E]" : "text-[#6B7280]"}`}>
-                  {kb.name}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className={`text-sm font-medium ${activeTab === kb.id ? "text-[#1A1A2E]" : "text-[#6B7280]"}`}>
+                    {kb.name}
+                  </p>
+                  {kb.documentCount !== undefined && kb.documentCount > 0 && (
+                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-gray-100 text-[#6B7280]">
+                      {kb.documentCount}
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-[#9CA3AF] hidden sm:block">{kb.description}</p>
               </div>
             </button>
@@ -480,20 +545,39 @@ export default function AdminPage() {
             </div>
           </div>
 
-          {/* Recent Additions */}
+          {/* Stored Documents */}
           <div className="lg:col-span-2">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-50">
-                <h2 className="text-base font-semibold text-[#1A1A2E]">
-                  最近添加
-                </h2>
-                <p className="text-xs text-[#9CA3AF] mt-0.5">
-                  当前知识库：{activeKB.name}
-                </p>
+              <div className="px-6 py-4 border-b border-gray-50 flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-semibold text-[#1A1A2E]">
+                    已存储知识
+                  </h2>
+                  <p className="text-xs text-[#9CA3AF] mt-0.5">
+                    {activeKB.name} · 共 {storedDocs.length} 份文档
+                  </p>
+                </div>
+                <button
+                  onClick={() => fetchDocuments(activeTab)}
+                  className="p-2 rounded-lg hover:bg-gray-50 transition-colors"
+                  title="刷新"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6B7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 2v6h-6" />
+                    <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+                    <path d="M3 22v-6h6" />
+                    <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+                  </svg>
+                </button>
               </div>
 
               <div className="p-4">
-                {filteredDocs.length === 0 ? (
+                {isLoadingDocs ? (
+                  <div className="text-center py-12">
+                    <div className="w-8 h-8 border-2 border-[#FF6B4A]/20 border-t-[#FF6B4A] rounded-full animate-spin mx-auto mb-3" />
+                    <p className="text-sm text-[#9CA3AF]">加载中...</p>
+                  </div>
+                ) : storedDocs.length === 0 ? (
                   <div className="text-center py-12">
                     <div className="w-12 h-12 rounded-full bg-gray-50 flex items-center justify-center mx-auto mb-3">
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -503,15 +587,15 @@ export default function AdminPage() {
                         <path d="M9 15h6" />
                       </svg>
                     </div>
-                    <p className="text-sm text-[#9CA3AF]">暂无添加记录</p>
-                    <p className="text-xs text-[#C4C8CF] mt-1">添加知识后，会显示在这里</p>
+                    <p className="text-sm text-[#9CA3AF]">暂无存储知识</p>
+                    <p className="text-xs text-[#C4C8CF] mt-1">添加知识后，小白白就能学习并回答相关问题</p>
                   </div>
                 ) : (
                   <div className="space-y-3 max-h-[500px] overflow-y-auto">
-                    {filteredDocs.map((doc) => (
+                    {storedDocs.map((doc) => (
                       <div
                         key={doc.id}
-                        className="p-3 rounded-xl bg-gray-50 border border-gray-100"
+                        className="p-3 rounded-xl bg-gray-50 border border-gray-100 group"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
@@ -523,15 +607,26 @@ export default function AdminPage() {
                                 {doc.title}
                               </span>
                             </div>
-                            {doc.content && (
+                            {doc.preview && (
                               <p className="text-xs text-[#6B7280] mt-1.5 line-clamp-2">
-                                {doc.content}
+                                {doc.preview}
                               </p>
                             )}
                             <p className="text-xs text-[#9CA3AF] mt-1.5">
-                              {doc.createdAt.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+                              {formatDate(doc.createdAt)}
                             </p>
                           </div>
+                          <button
+                            onClick={() => handleDeleteDoc(doc)}
+                            className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-50 transition-all"
+                            title="删除"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M3 6h18" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            </svg>
+                          </button>
                         </div>
                       </div>
                     ))}
