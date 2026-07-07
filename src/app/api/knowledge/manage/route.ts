@@ -2,6 +2,25 @@ import { NextRequest, NextResponse } from "next/server";
 import { KnowledgeClient, Config, HeaderUtils, DataSourceType } from "coze-coding-dev-sdk";
 import { addDocument, removeDocumentsByDocIds, getDocumentsByKnowledgeBase, getAllDocuments } from "@/lib/knowledge-store";
 
+// 内容清洗：过滤代码、JSON、网页源码等垃圾内容
+function cleanDocumentContent(content: string): string {
+  if (!content) return "";
+  let cleaned = content;
+  // 移除 JSON 对象/数组
+  cleaned = cleaned.replace(/\{[\s\S]*?"[\s\S]*?":[\s\S]*?\}/g, "");
+  // 移除 JavaScript 代码块
+  cleaned = cleaned.replace(/(const|let|var|function|return|import|export|class|if|else|for|while|switch|case|break|continue|try|catch|throw|new|this|typeof|instanceof)\s*[\({;]/g, "");
+  // 移除 HTML 标签
+  cleaned = cleaned.replace(/<[^>]+>/g, "");
+  // 移除 URL 链接
+  cleaned = cleaned.replace(/https?:\/\/[^\s<>"{}|\\^`\[\]]+/g, "");
+  // 移除纯符号行
+  cleaned = cleaned.replace(/^[{}()\[\];,.<>!@#$%^&*|\\/~`]+$/gm, "");
+  // 移除空行
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+  return cleaned.trim();
+}
+
 const KNOWLEDGE_BASES = [
   {
     id: "business_basics",
@@ -48,10 +67,20 @@ export async function POST(request: NextRequest) {
         ? `# ${title}\n\n${content}` 
         : content;
 
+    // 清理内容：过滤代码、JSON、无效片段
+    const cleanedContent = cleanDocumentContent(rawContent);
+    
+    if (cleanedContent.length < 20) {
+      return NextResponse.json(
+        { success: false, error: "内容过短或无效，请检查后重新添加" },
+        { status: 400 }
+      );
+    }
+
     const doc =
       type === "url"
         ? { source: DataSourceType.URL, url: url || "" }
-        : { source: DataSourceType.TEXT, raw_data: rawContent };
+        : { source: DataSourceType.TEXT, raw_data: cleanedContent };
 
     const response = await client.addDocuments([doc], knowledgeBase);
 

@@ -110,6 +110,40 @@ function isOnTopic(message: string): boolean {
   return onTopicKeywords.some(kw => message.includes(kw));
 }
 
+// 过滤垃圾内容：太短的、代码片段、JSON、URL等
+function isValidKnowledgeContent(content: string): boolean {
+  // 太短的内容（少于15个字符）
+  if (content.trim().length < 15) return false;
+  
+  // 包含大量代码特征的内容
+  const codePatterns = [
+    /\{[^}]{50,}\}/,           // 长 JSON 块
+    /https?:\/\/[^\s]+/,       // URL
+    /[a-zA-Z_]+\s*:\s*"/,      // JSON 键值对
+    /function\s*\(/,           // 函数定义
+    /import\s+|export\s+/,     // import/export
+    /<script|<style|<div/,     // HTML 标签
+    /npm:\s*\{/,               // npm 配置
+    /"@tencent/,               // 腾讯 SDK 引用
+    /docs\.qq\.com/,           // QQ文档链接
+    /feedback.*qq\.com/,       // QQ反馈链接
+  ];
+  
+  const codeMatches = codePatterns.filter(p => p.test(content)).length;
+  if (codeMatches >= 2) return false;  // 匹配2个以上代码模式则过滤
+  
+  // 中文字符占比太低（可能是代码或乱码）
+  const chineseChars = content.match(/[\u4e00-\u9fa5]/g) || [];
+  const chineseRatio = chineseChars.length / content.length;
+  if (chineseRatio < 0.3 && content.length > 50) return false;
+  
+  // 纯标点或无意义内容
+  const meaningless = ["是的", "吗？", "没有", "不好意思", "好的", "嗯"];
+  if (meaningless.includes(content.trim())) return false;
+  
+  return true;
+}
+
 // 仅从知识库检索内容
 async function gatherKnowledgeContext(
   userMessage: string,
@@ -134,18 +168,29 @@ async function gatherKnowledgeContext(
     const searchResponse = await knowledgeClient.search(
       userMessage,
       tableNames,
-      10,
+      20,  // 增加搜索数量，过滤后保留有效内容
       0.0
     );
 
     if (searchResponse.code === 0 && searchResponse.chunks && searchResponse.chunks.length > 0) {
-      // 直接使用搜索结果
-      const allContent = searchResponse.chunks.map((c) => c.content).join("\n\n");
+      // 过滤垃圾内容
+      const validChunks = searchResponse.chunks.filter(c => isValidKnowledgeContent(c.content));
+      
+      console.log(`[Knowledge] Found ${searchResponse.chunks.length} chunks, ${validChunks.length} valid after filtering`);
+      
+      if (validChunks.length === 0) {
+        return { context: "", sourcesUsed: [] };
+      }
+      
+      // 使用过滤后的内容
+      const allContent = validChunks.map((c) => c.content).join("\n\n");
       
       // 标记使用了哪些知识库（使用中文名称便于展示）
       tableNames.forEach(id => {
         const name = KNOWLEDGE_BASE_NAMES[id] || id;
-        sourcesUsed.push(name);
+        if (!sourcesUsed.includes(name)) {
+          sourcesUsed.push(name);
+        }
       });
 
       return {

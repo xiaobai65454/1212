@@ -4,6 +4,46 @@ import { KnowledgeClient, Config, HeaderUtils, DataSourceType } from "coze-codin
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_EXTENSIONS = [".txt", ".md", ".pdf", ".docx", ".doc", ".csv"];
 
+/**
+ * 清理文档内容，过滤代码、JSON、网页源码等无效内容
+ */
+function cleanDocumentContent(content: string): string {
+  // 按行分割
+  const lines = content.split("\n");
+  const cleanLines: string[] = [];
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    
+    // 跳过空行
+    if (!trimmed) continue;
+    
+    // 跳过代码行（包含大量特殊字符）
+    if (/[{}[\]<>;:=]/.test(trimmed) && /[a-zA-Z_]/.test(trimmed)) {
+      // 如果一行中特殊字符占比过高，认为是代码
+      const specialChars = (trimmed.match(/[{}[\]<>;:=()"']/g) || []).length;
+      if (specialChars > trimmed.length * 0.15) continue;
+    }
+    
+    // 跳过 JSON 行
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) continue;
+    if (trimmed.startsWith('"') && trimmed.endsWith('"')) continue;
+    
+    // 跳过 URL 行
+    if (/^https?:\/\//.test(trimmed)) continue;
+    
+    // 跳过纯数字/符号行
+    if (/^[\d\s\-\+\*\./,]+$/.test(trimmed)) continue;
+    
+    // 跳过过短的行（少于3个字符，且不是中文）
+    if (trimmed.length < 3 && !/[\u4e00-\u9fa5]/.test(trimmed)) continue;
+    
+    cleanLines.push(trimmed);
+  }
+  
+  return cleanLines.join("\n");
+}
+
 async function parseFileContent(buffer: Buffer, fileName: string): Promise<string> {
   const ext = fileName.toLowerCase().slice(fileName.lastIndexOf("."));
 
@@ -83,18 +123,28 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(arrayBuffer);
 
     // Parse file content
-    const content = await parseFileContent(buffer, fileName);
+    const rawContent = await parseFileContent(buffer, fileName);
 
-    if (!content || content.trim().length === 0) {
+    if (!rawContent || rawContent.trim().length === 0) {
       return NextResponse.json({
         success: false,
         error: "文件内容为空或无法提取文本",
       });
     }
 
+    // Clean content - remove code, JSON, and garbage
+    const content = cleanDocumentContent(rawContent);
+    
+    if (!content || content.trim().length < 10) {
+      return NextResponse.json({
+        success: false,
+        error: "文件内容过滤后为空或过短，请确认文件包含有效文本内容",
+      });
+    }
+
     // Build document with title
     const docTitle = title?.trim() || fileName.replace(/\.[^.]+$/, "");
-    const fullContent = `# ${docTitle}\n\n> 来源文件: ${fileName}\n\n${content.trim()}`;
+    const fullContent = `# ${docTitle}\n\n${content.trim()}`;
 
     // Add to knowledge base
     const config = new Config();
