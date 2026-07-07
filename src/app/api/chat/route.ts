@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
-import { LLMClient, Config, HeaderUtils } from "coze-coding-dev-sdk";
-import { KnowledgeClient } from "coze-coding-dev-sdk";
+import { LLMClient, Config, HeaderUtils, SearchClient, KnowledgeClient } from "coze-coding-dev-sdk";
 
 const KNOWLEDGE_BASE_NAMES: Record<string, string> = {
   business_basics: "业务基础知识",
@@ -30,18 +29,90 @@ const SYSTEM_PROMPT = `你是"小白白"，一位专业的代理运营教练。
 可以回答：产品功能、价格、使用场景、业务流程、操作步骤、小红书/抖音运营方法论、团队协作规范
 拒绝回答：涉及公司机密、未公开的战略规划、其他代理的个人业绩/收入信息、超出业务范围的闲聊
 
-## 知识库使用规范
-当下方提供了【知识库参考内容】时：
-1. **优先使用知识库内容**回答，这是团队内部沉淀的专业知识
-2. 在回答中**明确标注来源**，例如："根据知识库中的..."、"在XX知识库中提到..."
-3. 如果知识库内容不足以完整回答，可以补充通用知识，但要**区分标注**：
-   - 📘 知识库内容：来自团队内部知识库
-   - 💡 补充说明：来自通用知识的补充
-4. 如果完全没有相关知识库内容，诚实告知并建议查阅知识库
+## 信息整合规范
+当下方提供了【参考信息】时，你需要：
+1. **整合所有来源**：将知识库内容和网络搜索结果进行融合，去重、互补、优化
+2. **优先使用知识库内容**：团队内部沉淀的知识优先级最高
+3. **网络搜索作为补充**：用于补充知识库中缺失的信息，特别是最新趋势、行业动态
+4. **明确标注来源**：
+   - 📘 来自知识库：团队内部沉淀的专业知识
+   - 🌐 来自网络搜索：实时获取的行业信息
+   - 💡 综合分析：基于多来源整合的优化建议
+5. **输出优化后的回答**：不是简单拼接，而是理解、整合、优化后给出最优质的回答
+6. 如果所有来源都无法回答，诚实告知并建议查阅知识库
 
 ## 兜底话术
 当遇到无法回答的问题时：
 "这个问题我需要核实一下准确信息，稍后给你回复。你可以先查阅相关知识库，或者联系对接人确认。"`;
+
+// 并行执行知识库检索和网络搜索
+async function gatherContext(
+  userMessage: string,
+  knowledgeBases: string[],
+  knowledgeClient: KnowledgeClient,
+  searchClient: SearchClient
+): Promise<{ knowledgeContext: string; sourcesUsed: string[]; webContext: string }> {
+  const sourcesUsed: string[] = [];
+
+  // 并行执行知识库检索和网络搜索
+  const [knowledgeResult, webResult] = await Promise.allSettled([
+    // 知识库检索
+    knowledgeBases.length > 0
+      ? knowledgeClient.search(userMessage, knowledgeBases, 8, 0.2)
+      : Promise.resolve({ code: -1, chunks: [] }),
+    // 网络搜索
+    searchClient.webSearch(userMessage, 5, true),
+  ]);
+
+  // 处理知识库结果
+  let knowledgeContext = "";
+  if (knowledgeResult.status === "fulfilled" && knowledgeResult.value.code === 0 && knowledgeResult.value.chunks.length > 0) {
+    const knowledgeMap: Record<string, Array<{ content: string; score: number }>> = {};
+
+    knowledgeResult.value.chunks.forEach((chunk: { content: string; table_name?: string; score?: number }) => {
+      const dbName = chunk.table_name || "通用知识";
+      const displayName = KNOWLEDGE_BASE_NAMES[dbName] || dbName;
+
+      if (!knowledgeMap[displayName]) knowledgeMap[displayName] = [];
+      knowledgeMap[displayName].push({
+        content: chunk.content,
+        score: chunk.score || 0,
+      });
+
+      if (!sourcesUsed.includes(displayName)) {
+        sourcesUsed.push(displayName);
+      }
+    });
+
+    knowledgeContext = Object.entries(knowledgeMap)
+      .map(([dbName, items]) => {
+        const contents = items
+          .sort((a, b) => b.score - a.score)
+          .map(item => item.content)
+          .join("\n\n");
+        return `### 📘 ${dbName}\n${contents}`;
+      })
+      .join("\n\n---\n\n");
+  }
+
+  // 处理网络搜索结果
+  let webContext = "";
+  if (webResult.status === "fulfilled" && webResult.value.web_items && webResult.value.web_items.length > 0) {
+    const webItems = webResult.value.web_items.slice(0, 5);
+    webContext = webItems
+      .map(item => {
+        const summary = item.summary || item.snippet || "";
+        return `**${item.title}**\n${summary}`;
+      })
+      .join("\n\n---\n\n");
+
+    if (!sourcesUsed.includes("网络搜索")) {
+      sourcesUsed.push("网络搜索");
+    }
+  }
+
+  return { knowledgeContext, sourcesUsed, webContext };
+}
 
 export async function POST(request: NextRequest) {
   const { messages, knowledgeBases } = await request.json();
@@ -50,56 +121,29 @@ export async function POST(request: NextRequest) {
   const config = new Config();
   const llmClient = new LLMClient(config, customHeaders);
   const knowledgeClient = new KnowledgeClient(config, customHeaders);
+  const searchClient = new SearchClient(config, customHeaders);
 
   const userMessage = messages[messages.length - 1]?.content || "";
 
-  let knowledgeContext = "";
-  const sourcesUsed: string[] = [];
+  // 并行获取知识库和网络搜索内容
+  const { knowledgeContext, sourcesUsed, webContext } = await gatherContext(
+    userMessage,
+    knowledgeBases || [],
+    knowledgeClient,
+    searchClient
+  );
 
-  if (knowledgeBases && knowledgeBases.length > 0) {
-    try {
-      const searchResults = await knowledgeClient.search(
-        userMessage,
-        knowledgeBases,
-        8,  // 增加检索数量
-        0.2  // 降低阈值，获取更多相关内容
-      );
-
-      if (searchResults.code === 0 && searchResults.chunks.length > 0) {
-        const knowledgeMap: Record<string, Array<{ content: string; score: number }>> = {};
-        
-        searchResults.chunks.forEach((chunk: { content: string; table_name?: string; score?: number }) => {
-          const dbName = chunk.table_name || "通用知识";
-          const displayName = KNOWLEDGE_BASE_NAMES[dbName] || dbName;
-          
-          if (!knowledgeMap[displayName]) knowledgeMap[displayName] = [];
-          knowledgeMap[displayName].push({
-            content: chunk.content,
-            score: chunk.score || 0,
-          });
-          
-          if (!sourcesUsed.includes(displayName)) {
-            sourcesUsed.push(displayName);
-          }
-        });
-
-        knowledgeContext = "\n\n---\n\n## 📘 知识库参考内容\n\n" + Object.entries(knowledgeMap)
-          .map(([dbName, items]) => {
-            const contents = items
-              .sort((a, b) => b.score - a.score)
-              .map(item => item.content)
-              .join("\n\n---\n\n");
-            return `### 📚 ${dbName}\n\n${contents}`;
-          })
-          .join("\n\n");
-      }
-    } catch (error) {
-      console.error("Knowledge search failed:", error);
-    }
+  // 构建完整的参考信息
+  let referenceSection = "";
+  if (knowledgeContext) {
+    referenceSection += `\n\n## 📘 知识库内容（团队内部知识，优先级最高）\n\n${knowledgeContext}`;
+  }
+  if (webContext) {
+    referenceSection += `\n\n## 🌐 网络搜索内容（实时信息补充）\n\n${webContext}`;
   }
 
-  const fullSystemPrompt = knowledgeContext
-    ? `${SYSTEM_PROMPT}\n${knowledgeContext}`
+  const fullSystemPrompt = referenceSection
+    ? `${SYSTEM_PROMPT}\n\n---\n\n# 参考信息\n${referenceSection}\n\n---\n\n请整合以上所有来源的信息，优化后给出最佳回答。`
     : SYSTEM_PROMPT;
 
   const chatMessages = [
@@ -111,7 +155,7 @@ export async function POST(request: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        // 先发送知识库来源信息
+        // 先发送来源信息
         if (sourcesUsed.length > 0) {
           const sourcesData = `data: ${JSON.stringify({ sources: sourcesUsed })}\n\n`;
           controller.enqueue(encoder.encode(sourcesData));
