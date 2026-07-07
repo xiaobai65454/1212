@@ -3,6 +3,17 @@
     "title": "校园卡资费",
     "knowledgeBase": "business_basics",
     "type": "text",
+    "preview": "校园卡月租 39 160g全国流量 100分钟通话 100条短信",
+    "docIds": [
+      "7659816570876772403"
+    ],
+    "id": "doc_1783443576389_d7q7bc",
+    "createdAt": "2026-07-07T16:59:36.389Z"
+  },
+  {
+    "title": "校园卡资费",
+    "knowledgeBase": "business_basics",
+    "type": "text",
     "preview": "校园卡月租 39  160g全国流量 100分钟通话 100条短信",
     "docIds": [
       "7659814651722629154"

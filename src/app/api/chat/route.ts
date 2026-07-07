@@ -95,11 +95,11 @@ async function gatherKnowledgeContext(
       return { context: "", sourcesUsed: [] };
     }
 
-    // 搜索所有启用的知识库
+    // 搜索所有启用的知识库，增加 topK 以获取更多结果
     const searchResponse = await knowledgeClient.search(
       userMessage,
       tableNames,
-      5,
+      10,
       0.0
     );
 
@@ -119,7 +119,7 @@ async function gatherKnowledgeContext(
       };
     }
   } catch (error) {
-    console.error("Knowledge search error:", error);
+    console.error("[Knowledge] Search error:", error);
   }
 
   return { context: "", sourcesUsed: [] };
