@@ -22,7 +22,8 @@ src/
 │   │   └── knowledge/
 │   │       ├── route.ts           # 知识库列表 + 语义搜索
 │   │       ├── init/route.ts      # 知识库初始化（导入数据）
-│   │       └── manage/route.ts    # 知识库管理（添加/删除）
+│   │       ├── manage/route.ts    # 知识库管理（添加/删除）
+│   │       └── upload/route.ts    # 文件上传解析（PDF/Word/TXT/MD/CSV）
 │   ├── layout.tsx                 # 根布局
 │   ├── page.tsx                   # 主页面（聊天界面）
 │   └── globals.css                # 全局样式
@@ -41,7 +42,7 @@ src/
 1. **流式对话**: 前端通过 fetch + ReadableStream 实现打字机效果
 2. **知识库检索**: 用户提问时自动从三个知识库检索相关内容，注入到 system prompt
 3. **知识库管理**: 侧边栏可选择启用/禁用知识库
-4. **知识库管理后台**: `/admin` 页面支持文本输入和 URL 导入两种方式添加知识
+4. **知识库管理后台**: `/admin` 页面支持文本输入、URL 导入和文档上传三种方式添加知识
 5. **响应式设计**: 桌面端侧边栏 + 移动端抽屉式导航
 
 ## 知识库
