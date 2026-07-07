@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { KnowledgeClient, Config, HeaderUtils, DataSourceType } from "coze-coding-dev-sdk";
+import { addDocuments } from "@/lib/knowledge-client";
 
 const KNOWLEDGE_DATA: Record<string, Array<{ title: string; content: string }>> = {
   business_basics: [
@@ -113,6 +113,44 @@ const KNOWLEDGE_DATA: Record<string, Array<{ title: string; content: string }>> 
 3. 二次创作：借鉴结构，替换内容
 4. 原创模板：形成自己的内容模板库`,
     },
+    {
+      title: "抖音直播间违禁词完整列表",
+      content: `## 抖音直播间违禁词完整列表
+
+### 一、极限词（绝对化用语）
+最、最佳、最好、最优、最高、最大、最强、最低、最便宜、最新、最先进、最科学、最喜欢、最赚、最值、第一、唯一、首个、首选、独家、全网最低、历史最低、史上最强、万能、100%、全方位、完美、绝对、极品、顶级、极致、永久、无敌、仅此一次、错过不再、限时、秒杀、抢爆、再不抢就没了、最后一波、仅此一场
+
+### 二、虚假承诺词
+包过、保过、保证效果、无效退款、零风险、无风险、稳赚、必赚、躺赚、日入过万、月入百万、一夜暴富、快速致富、轻松月入、保证收益、承诺收益、保底收益、高额回报、投资回报、理财收益、稳赚不赔、零投入、无门槛、免费领、0元购、白嫖
+
+### 三、医疗/健康违禁词
+治疗、治愈、根治、药到病除、一针见效、三天见效、七天见效、无效退款、包治百病、神药、特效药、秘方、偏方、祖传、中医世家、西医推荐、医院同款、医生推荐、专家推荐、国家级、世界级、全球领先、最新技术、最先进设备
+
+### 四、金融/投资违禁词
+理财、投资、基金、股票、期货、外汇、数字货币、比特币、区块链、元宇宙、NFT、众筹、私募、风投、天使投资、回报率、收益率、年化收益、日收益、月收益、稳赚、保本、保收益、零风险投资、高收益、躺赚、被动收入、财务自由
+
+### 五、引流/导流违禁词
+微信、vx、VX、薇信、薇❤、➕V、加V、加微、WX、wx、QQ、qq、手机号、电话、号码、私信我、评论区见、主页见、简介见、点击链接、扫描二维码、扫码、进群、加群、私聊、私我、滴滴我、扣1、扣666
+
+### 六、诱导互动违禁词
+不转不是中国人、转发保平安、点赞发财、评论必回、关注送、点赞送、转发送、分享领、邀请好友、拉人头、发展下线、多级分销、团队计酬、裂变营销
+
+### 七、敏感身份词
+官方、官方授权、官方认证、官方推荐、官方合作、品牌方、代理商、经销商、总代、总代、独家代理、独家授权
+
+### 八、校园业务特别注意
+- 不能说"官方推荐"、"运营商官方"（我们是学长学姐，不是官方）
+- 不能说"加微信"、"加V"（用表情包、贴纸暗示）
+- 不能说"办卡"、"买卡"（用"办理"、"开通"替代）
+- 不能说"最便宜"、"最划算"（用"性价比高"、"很实惠"替代）
+- 不能说"保证好用"（用"很多同学反馈不错"替代）
+
+### 九、安全替代方案
+- 引流：用表情包、贴纸、背景板暗示，不要直接说
+- 联系方式：说"主页有线索"、"简介有提示"、"你懂的"
+- 产品推荐：说"我个人在用"、"同学反馈不错"、"性价比很高"
+- 效果承诺：说"大部分人觉得不错"、"可以尝试一下"、"不适合可以退"`,
+    },
   ],
   sales_conversion: [
     {
@@ -190,37 +228,20 @@ const KNOWLEDGE_DATA: Record<string, Array<{ title: string; content: string }>> 
 };
 
 export async function POST() {
-  const config = new Config();
-  const client = new KnowledgeClient(config);
-
   const results: Record<string, { success: boolean; message: string }> = {};
 
   for (const [dbName, docs] of Object.entries(KNOWLEDGE_DATA)) {
     try {
-      const knowledgeDocs = docs.map(
-        (d) => ({
-          source: DataSourceType.TEXT,
-          raw_data: `# ${d.title}\n\n${d.content}`,
-        })
-      );
-
-      const response = await client.addDocuments(knowledgeDocs, dbName);
-
-      if (response.code === 0) {
-        results[dbName] = {
-          success: true,
-          message: `成功导入 ${response.doc_ids?.length || 0} 个文档`,
-        };
-      } else {
-        results[dbName] = {
-          success: false,
-          message: response.msg || "导入失败",
-        };
-      }
-    } catch {
+      await addDocuments(dbName, docs);
+      
+      results[dbName] = {
+        success: true,
+        message: `成功导入 ${docs.length} 个文档`,
+      };
+    } catch (error) {
       results[dbName] = {
         success: false,
-        message: "导入异常",
+        message: `导入异常: ${error instanceof Error ? error.message : '未知错误'}`,
       };
     }
   }
