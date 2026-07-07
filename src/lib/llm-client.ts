@@ -14,12 +14,14 @@ export interface ChatMessage {
   content: string;
 }
 
-// 默认配置（豆包 API）
-const DEFAULT_CONFIG: LLMConfig = {
-  apiKey: process.env.LLM_API_KEY || "",
-  baseUrl: process.env.LLM_BASE_URL || "https://ark.cn-beijing.volces.com/api/v3",
-  model: process.env.LLM_MODEL || "doubao-seed-2-0-lite-260215",
-};
+// 获取配置（运行时读取环境变量）
+function getConfig(): LLMConfig {
+  return {
+    apiKey: process.env.LLM_API_KEY || process.env.DOUBAO_API_KEY || "",
+    baseUrl: process.env.LLM_BASE_URL || process.env.DOUBAO_BASE_URL || "https://ark.cn-beijing.volces.com/api/v3",
+    model: process.env.LLM_MODEL || process.env.DOUBAO_MODEL || "doubao-seed-2-0-lite-260215",
+  };
+}
 
 /**
  * 流式调用 LLM
@@ -28,10 +30,10 @@ export async function* streamChat(
   messages: ChatMessage[],
   options: { temperature?: number; maxTokens?: number } = {}
 ): AsyncGenerator<string> {
-  const config = DEFAULT_CONFIG;
+  const config = getConfig();
 
   if (!config.apiKey) {
-    throw new Error("LLM_API_KEY 环境变量未设置");
+    throw new Error("LLM_API_KEY 或 DOUBAO_API_KEY 环境变量未设置");
   }
 
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
