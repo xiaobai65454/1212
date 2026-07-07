@@ -64,31 +64,91 @@ const SYSTEM_PROMPT = `你是"小白白"，一位专业的校园业务代理运�
 当遇到无法回答的问题时：
 "这个问题我需要核实一下准确信息，稍后给你回复。你可以先查阅相关知识库，或者联系对接人确认。"`;
 
+// 判断问题是否与校园通信业务相关
+function isOnTopic(message: string): boolean {
+  const onTopicKeywords = [
+    // 校园卡/电话卡相关
+    "校园卡", "电话卡", "手机卡", "SIM卡", "套餐", "资费", "流量", "通话",
+    "开卡", "激活", "充值", "销户", "补卡", "换卡", "号码",
+    // 校园推广相关
+    "校园推广", "校园市场", "校园代理", "代理", "招生", "推广",
+    "小红书", "抖音", "社媒", "运营", "引流", "涨粉", "内容创作", "文案",
+    // 销售相关
+    "销售", "话术", "客户", "成交", "转化", "跟进", "签单", "开单",
+    // 业务相关
+    "产品", "价格", "竞品", "对比", "优势", "卖点", "业务", "流程",
+    "团队", "考核", "培训", "学习", "知识",
+    // 通用但可能相关的
+    "怎么", "如何", "什么", "哪", "吗", "呢",
+  ];
+
+  // 如果消息很短且不含任何业务关键词，可能是闲聊
+  if (message.length < 5) {
+    return onTopicKeywords.some(kw => message.includes(kw));
+  }
+
+  // 检查是否包含至少一个业务关键词
+  return onTopicKeywords.some(kw => message.includes(kw));
+}
+
+// 过滤网络搜索结果，只保留与校园业务相关的内容
+function filterWebResults(items: Array<{ title: string; summary?: string; snippet?: string }>): typeof items {
+  const businessKeywords = [
+    "校园", "电话卡", "手机卡", "SIM卡", "通信", "套餐", "流量",
+    "推广", "代理", "小红书", "抖音", "运营", "引流", "销售",
+    "话术", "客户", "市场", "营销", "内容", "文案",
+  ];
+
+  return items.filter(item => {
+    const text = `${item.title} ${item.summary || ""} ${item.snippet || ""}`;
+    return businessKeywords.some(kw => text.includes(kw));
+  });
+}
+
 // 并行执行知识库检索和网络搜索
 async function gatherContext(
   userMessage: string,
   knowledgeBases: string[],
   knowledgeClient: KnowledgeClient,
   searchClient: SearchClient
-): Promise<{ knowledgeContext: string; sourcesUsed: string[]; webContext: string }> {
+): Promise<{ knowledgeContext: string; sourcesUsed: string[]; webContext: string; isOnTopic: boolean }> {
   const sourcesUsed: string[] = [];
 
-  // 构建聚焦校园业务的搜索关键词
-  const businessKeywords = ["校园卡", "电话卡", "SIM卡", "校园推广", "校园市场", "校园代理", "手机卡套餐"];
-  const hasBusinessKeyword = businessKeywords.some(kw => userMessage.includes(kw));
-  // 如果用户消息不含业务关键词，搜索时补充业务上下文
-  const searchQuery = hasBusinessKeyword
-    ? userMessage
-    : `${userMessage} 校园通信 校园卡 校园市场`;
+  // 前置判断：问题是否与业务相关
+  const onTopic = isOnTopic(userMessage);
 
-  // 并行执行知识库检索和网络搜索
+  // 如果问题与业务无关，跳过网络搜索，只检索知识库
+  if (!onTopic) {
+    // 仍然检索知识库，看看是否有相关内容
+    let knowledgeContext = "";
+    if (knowledgeBases.length > 0) {
+      const knowledgeResult = await knowledgeClient.search(userMessage, knowledgeBases, 5, 0.3).catch(() => ({ code: -1, chunks: [] }));
+      if (knowledgeResult.code === 0 && knowledgeResult.chunks.length > 0) {
+        const knowledgeMap: Record<string, Array<{ content: string; score: number }>> = {};
+        knowledgeResult.chunks.forEach((chunk: { content: string; table_name?: string; score?: number }) => {
+          const dbName = chunk.table_name || "通用知识";
+          const displayName = KNOWLEDGE_BASE_NAMES[dbName] || dbName;
+          if (!knowledgeMap[displayName]) knowledgeMap[displayName] = [];
+          knowledgeMap[displayName].push({ content: chunk.content, score: chunk.score || 0 });
+          if (!sourcesUsed.includes(displayName)) sourcesUsed.push(displayName);
+        });
+        knowledgeContext = Object.entries(knowledgeMap)
+          .map(([dbName, items]) => {
+            const contents = items.sort((a, b) => b.score - a.score).map(item => item.content).join("\n\n");
+            return `### 📘 ${dbName}\n${contents}`;
+          })
+          .join("\n\n---\n\n");
+      }
+    }
+    return { knowledgeContext, sourcesUsed, webContext: "", isOnTopic: false };
+  }
+
+  // 问题与业务相关，执行完整的知识库检索和网络搜索
   const [knowledgeResult, webResult] = await Promise.allSettled([
-    // 知识库检索
     knowledgeBases.length > 0
       ? knowledgeClient.search(userMessage, knowledgeBases, 8, 0.2)
       : Promise.resolve({ code: -1, chunks: [] }),
-    // 网络搜索（聚焦校园业务）
-    searchClient.webSearch(searchQuery, 5, true),
+    searchClient.webSearch(userMessage, 5, true),
   ]);
 
   // 处理知识库结果
@@ -122,23 +182,27 @@ async function gatherContext(
       .join("\n\n---\n\n");
   }
 
-  // 处理网络搜索结果
+  // 处理网络搜索结果（严格过滤）
   let webContext = "";
   if (webResult.status === "fulfilled" && webResult.value.web_items && webResult.value.web_items.length > 0) {
-    const webItems = webResult.value.web_items.slice(0, 5);
-    webContext = webItems
-      .map(item => {
-        const summary = item.summary || item.snippet || "";
-        return `**${item.title}**\n${summary}`;
-      })
-      .join("\n\n---\n\n");
+    // 过滤掉与业务无关的搜索结果
+    const filteredItems = filterWebResults(webResult.value.web_items);
+    if (filteredItems.length > 0) {
+      webContext = filteredItems
+        .slice(0, 5)
+        .map(item => {
+          const summary = item.summary || item.snippet || "";
+          return `**${item.title}**\n${summary}`;
+        })
+        .join("\n\n---\n\n");
 
-    if (!sourcesUsed.includes("网络搜索")) {
-      sourcesUsed.push("网络搜索");
+      if (!sourcesUsed.includes("网络搜索")) {
+        sourcesUsed.push("网络搜索");
+      }
     }
   }
 
-  return { knowledgeContext, sourcesUsed, webContext };
+  return { knowledgeContext, sourcesUsed, webContext, isOnTopic: true };
 }
 
 export async function POST(request: NextRequest) {
@@ -153,12 +217,33 @@ export async function POST(request: NextRequest) {
   const userMessage = messages[messages.length - 1]?.content || "";
 
   // 并行获取知识库和网络搜索内容
-  const { knowledgeContext, sourcesUsed, webContext } = await gatherContext(
+  const { knowledgeContext, sourcesUsed, webContext, isOnTopic } = await gatherContext(
     userMessage,
     knowledgeBases || [],
     knowledgeClient,
     searchClient
   );
+
+  // 如果问题与业务无关且知识库也没有相关内容，直接拒绝
+  if (!isOnTopic && !knowledgeContext) {
+    const rejectMessage = "这个问题超出了我的服务范围哦～我是专门负责校园通信业务的教练，主要帮大家解答校园卡（电话卡）套餐、校园推广运营、销售转化等方面的问题。有其他业务相关的问题随时问我！";
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        const data = `data: ${JSON.stringify({ content: rejectMessage })}\n\n`;
+        controller.enqueue(encoder.encode(data));
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    });
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
+  }
 
   // 构建完整的参考信息
   let referenceSection = "";
@@ -169,12 +254,13 @@ export async function POST(request: NextRequest) {
     referenceSection += `\n\n## 🌐 网络搜索内容（实时信息补充）\n\n${webContext}`;
   }
 
-  const fullSystemPrompt = referenceSection
-    ? `${SYSTEM_PROMPT}\n\n---\n\n# 参考信息\n${referenceSection}\n\n---\n\n请整合以上所有来源的信息，优化后给出最佳回答。直接输出优化后的内容，不要标注来源。`
-    : SYSTEM_PROMPT;
+  // 根据是否在主题范围内调整系统提示词
+  const basePrompt = isOnTopic
+    ? `${SYSTEM_PROMPT}\n\n---\n\n# 参考信息\n${referenceSection}\n\n---\n\n请整合以上所有来源的信息，优化后给出最佳回答。直接输出优化后的内容，不要标注来源。如果参考信息中没有相关内容，仅基于你的角色定位回答。`
+    : `${SYSTEM_PROMPT}\n\n---\n\n# 参考信息\n${referenceSection}\n\n---\n\n注意：用户的问题可能与校园通信业务无关。请严格判断：如果参考信息中有相关内容，可以基于参考信息回答；如果参考信息中没有相关内容，且问题与校园通信业务无关，请礼貌拒绝并引导用户提出业务相关的问题。不要生成与业务无关的内容。`;
 
   const chatMessages = [
-    { role: "system", content: fullSystemPrompt },
+    { role: "system", content: basePrompt },
     ...messages,
   ];
 
