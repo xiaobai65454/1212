@@ -1,38 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { KnowledgeClient, Config, HeaderUtils, DataSourceType } from "coze-coding-dev-sdk";
+import { search as searchKnowledge, type SearchResult } from "@/lib/knowledge-client";
 
 export async function POST(request: NextRequest) {
   const { query, knowledgeBases, topK } = await request.json();
-  const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
-
-  const config = new Config();
-  const client = new KnowledgeClient(config, customHeaders);
 
   try {
-    const response = await client.search(
+    const results = await searchKnowledge(
       query || "",
       knowledgeBases && knowledgeBases.length > 0 ? knowledgeBases : undefined,
-      topK || 5,
-      0.3
+      topK || 5
     );
 
-    if (response.code === 0) {
-      return NextResponse.json({
-        success: true,
-        results: response.chunks.map((chunk: { content: string; score: number; doc_id?: string; table_name?: string }) => ({
-          content: chunk.content,
-          score: chunk.score,
-          docId: chunk.doc_id,
-          source: chunk.table_name,
-        })),
-      });
-    }
-
     return NextResponse.json({
-      success: false,
-      error: response.msg || "搜索失败",
+      success: true,
+      results: results.map((r: SearchResult) => ({
+        content: r.content,
+        score: r.score,
+        docId: r.docId,
+      })),
     });
   } catch (error) {
+    console.error("Knowledge search error:", error);
     return NextResponse.json({
       success: false,
       error: "知识库搜索异常",

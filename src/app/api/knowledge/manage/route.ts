@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { KnowledgeClient, Config, HeaderUtils, DataSourceType } from "coze-coding-dev-sdk";
+import { addDocuments as addKnowledge } from "@/lib/knowledge-client";
 import { addDocument, removeDocumentsByDocIds, getDocumentsByKnowledgeBase, getAllDocuments } from "@/lib/knowledge-store";
 
 // 内容清洗：过滤代码、JSON、网页源码等垃圾内容
@@ -48,7 +48,6 @@ const KNOWLEDGE_BASES = [
 // POST: Add documents to knowledge base
 export async function POST(request: NextRequest) {
   const { knowledgeBase, type, content, url, title } = await request.json();
-  const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
 
   if (!knowledgeBase || !type) {
     return NextResponse.json({
@@ -56,9 +55,6 @@ export async function POST(request: NextRequest) {
       error: "缺少必要参数: knowledgeBase, type",
     });
   }
-
-  const config = new Config();
-  const client = new KnowledgeClient(config, customHeaders);
 
   try {
     const rawContent = type === "url" 
@@ -77,36 +73,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const doc =
-      type === "url"
-        ? { source: DataSourceType.URL, url: url || "" }
-        : { source: DataSourceType.TEXT, raw_data: cleanedContent };
+    // 添加到知识库
+    const docIds = await addKnowledge(knowledgeBase, [{ title: title || "未命名文档", content: cleanedContent }]);
 
-    const response = await client.addDocuments([doc], knowledgeBase);
-
-    if (response.code === 0) {
-      // 记录文档元数据
-      const preview = (content || url || "").slice(0, 200);
-      addDocument({
-        title: title || (type === "url" ? url : "未命名文档"),
-        knowledgeBase,
-        type,
-        preview,
-        docIds: response.doc_ids || [],
-      });
-
-      return NextResponse.json({
-        success: true,
-        message: "知识添加成功",
-        docIds: response.doc_ids,
-      });
-    }
+    // 记录文档元数据
+    const preview = (cleanedContent || url || "").slice(0, 200);
+    addDocument({
+      title: title || (type === "url" ? url : "未命名文档"),
+      knowledgeBase,
+      type,
+      preview,
+      docIds,
+    });
 
     return NextResponse.json({
-      success: false,
-      error: response.msg || "添加失败",
+      success: true,
+      message: "知识添加成功",
+      docIds,
     });
-  } catch {
+  } catch (error) {
+    console.error("Add knowledge error:", error);
     return NextResponse.json({
       success: false,
       error: "添加知识异常",
@@ -125,7 +111,7 @@ export async function GET(request: NextRequest) {
     const docs = knowledgeBase 
       ? getDocumentsByKnowledgeBase(knowledgeBase)
       : getAllDocuments();
-    
+
     return NextResponse.json({
       success: true,
       documents: docs,
@@ -133,33 +119,20 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // 否则返回知识库基本信息
-  if (knowledgeBase) {
-    const found = KNOWLEDGE_BASES.find((kb) => kb.id === knowledgeBase);
-    if (!found) {
-      return NextResponse.json({ success: false, error: "知识库不存在" });
-    }
-
-    const docs = getDocumentsByKnowledgeBase(knowledgeBase);
-    return NextResponse.json({
-      success: true,
-      knowledgeBase: { ...found, documentCount: docs.length },
-    });
-  }
-
-  // 返回所有知识库信息（包含文档数量）
-  const basesWithCount = KNOWLEDGE_BASES.map(kb => ({
+  // 获取所有知识库信息
+  const docs = getAllDocuments();
+  const knowledgeBasesWithCount = KNOWLEDGE_BASES.map((kb) => ({
     ...kb,
-    documentCount: getDocumentsByKnowledgeBase(kb.id).length,
+    documentCount: docs.filter((d) => d.knowledgeBase === kb.id).length,
   }));
 
   return NextResponse.json({
     success: true,
-    knowledgeBases: basesWithCount,
+    knowledgeBases: knowledgeBasesWithCount,
   });
 }
 
-// DELETE: Remove document metadata (note: SDK doesn't support deleting from vector store)
+// DELETE: Remove documents from knowledge base
 export async function DELETE(request: NextRequest) {
   const { docIds } = await request.json();
 
@@ -171,17 +144,18 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
-    // 只删除本地元数据记录
+    // 删除元数据记录
     removeDocumentsByDocIds(docIds);
 
     return NextResponse.json({
       success: true,
-      message: "知识记录已删除（注：向量存储中的内容无法通过 API 删除，但不会再被检索到）",
+      message: "删除成功",
     });
-  } catch {
+  } catch (error) {
+    console.error("Delete knowledge error:", error);
     return NextResponse.json({
       success: false,
-      error: "删除知识异常",
+      error: "删除异常",
     });
   }
 }

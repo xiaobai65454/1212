@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { KnowledgeClient, Config, HeaderUtils, DataSourceType } from "coze-coding-dev-sdk";
+import { addDocuments as addDocumentsToKnowledge } from "@/lib/knowledge-client";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_EXTENSIONS = [".txt", ".md", ".pdf", ".docx", ".doc", ".csv"];
@@ -84,8 +84,6 @@ async function parseFileContent(buffer: Buffer, fileName: string): Promise<strin
 }
 
 export async function POST(request: NextRequest) {
-  const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
-
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
@@ -147,29 +145,17 @@ export async function POST(request: NextRequest) {
     const fullContent = `# ${docTitle}\n\n${content.trim()}`;
 
     // Add to knowledge base
-    const config = new Config();
-    const client = new KnowledgeClient(config, customHeaders);
-
-    const doc = {
-      source: DataSourceType.TEXT,
-      raw_data: fullContent,
-    };
-
-    const response = await client.addDocuments([doc], knowledgeBase);
-
-    if (response.code === 0) {
-      return NextResponse.json({
-        success: true,
-        message: `文件「${fileName}」已成功导入知识库`,
-        docIds: response.doc_ids,
-        fileName,
-        contentLength: content.length,
-      });
-    }
+    const docIds = await addDocumentsToKnowledge(knowledgeBase, [{
+      title: docTitle,
+      content: fullContent,
+    }]);
 
     return NextResponse.json({
-      success: false,
-      error: response.msg || "导入失败",
+      success: true,
+      message: `文件「${fileName}」已成功导入知识库`,
+      docIds,
+      fileName,
+      contentLength: content.length,
     });
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : "文件上传异常";

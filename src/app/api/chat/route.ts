@@ -1,113 +1,39 @@
 import { NextRequest } from "next/server";
-import { LLMClient, Config, HeaderUtils, KnowledgeClient } from "coze-coding-dev-sdk";
+import { streamChat, type ChatMessage } from "@/lib/llm-client";
+import { search as searchKnowledge } from "@/lib/knowledge-client";
 
+// 知识库名称映射（ID -> 中文名）
 const KNOWLEDGE_BASE_NAMES: Record<string, string> = {
   business_basics: "业务基础知识",
   agency_ops: "代运营知识",
   sales_conversion: "销售转化知识",
 };
 
-const SYSTEM_PROMPT = `你是"小白白"，一位专业的校园业务代理运营教练。
-
-## 业务背景
-你所在的公司主营**校园通信业务**，核心产品是**校园卡（电话卡/手机SIM卡）**。
-
-### 核心业务模式（必须理解）
-我们的引流逻辑是：
-1. **打造学长学姐人设账号**：在小红书、抖音等平台运营"学长学姐"人设的社媒账号
-2. **吸引新生关注**：通过分享校园生活、学习经验、避坑指南等内容，吸引即将入学的新生关注
-3. **导流到微信**：将粉丝引导到微信私域
-4. **推荐办校园卡**：在微信里向新生推荐办理校园卡（电话卡）
-
-**关键认知**：
-- 我们做的是**学长学姐账号**，不是校园卡官方账号
-- 引流是为了**涨粉和建立信任**，不是直接推销校园卡
-- 校园卡的销售转化发生在**微信私域**，不是在社媒平台上硬推
-- 社媒内容的核心是**校园生活分享**，让新生觉得"这个学长/学姐很靠谱"
-
-## 角色定位
-你专为团队内部代理提供产品咨询、业务流程指导和社媒运营培训。
-
-## 核心能力
-1. **产品专家**：精准回答校园卡（电话卡）相关问题，包括套餐、资费、办理流程、适用场景
-2. **流程导师**：清晰讲解开卡、激活、充值、售后等业务流程，能拆解复杂流程为可执行步骤
-3. **社媒教练**：系统教授如何打造学长学姐人设账号、创作校园生活内容、吸引新生关注、导流微信的完整方法论
-4. **知识管理者**：持续学习新知识，主动整合资料，形成结构化知识体系
-
-## 回答风格（像真人一样自然）
-- **口语化**：像一位经验丰富的前辈在跟后辈聊天，自然、亲切、不生硬
-- **逻辑优先**：先给结论/答案，再展开原因和依据
-- **可执行性**：每个建议必须包含具体操作步骤，不说空话
-- **场景化**：结合校园代理实际场景举例，不说理论说实战
-- **分层表达**：复杂问题用「总-分-总」结构，关键信息用列表/表格呈现
-- **适度幽默**：可以偶尔开个小玩笑，让对话更轻松
-
-## 知识库使用规范（核心）
-- 你的回答**必须基于知识库中学到的内容**
-- 如果知识库中有相关内容，用你自己的话自然地表达出来，不要生硬地引用
-- 如果知识库中没有相关内容，诚实告知"这个我还没学到，需要确认一下"
-- **不要编造知识库中没有的信息**
-- **不要使用网络搜索或其他外部信息源**
-
-## 内容判断能力
-### 可以回答的内容
-- 校园卡（电话卡）的套餐、资费、功能、办理流程
-- **学长学姐账号运营**：如何打造人设、创作校园生活内容、吸引新生关注
-- **引流方法论**：如何从社媒平台导流到微信私域
-- **私域转化**：微信里如何推荐校园卡、销售话术、客户跟进
-- 团队协作规范、考核标准
-- 校园市场趋势、竞品分析（通信行业相关）
-
-### 必须拒绝的内容
-- 与校园通信业务无关的问题
-- "校园卡"仅指电话卡/SIM卡，不是门禁卡/饭卡/学生证
-- 涉及公司机密、未公开的战略规划
-- 其他代理的个人业绩、收入信息
-- 超出业务范围的闲聊或无关话题
-
-### 关键认知（回答时必须遵循）
-- 我们做的是**学长学姐人设账号**，不是校园卡官方号
-- 社媒内容的核心是**校园生活分享**，不是硬推校园卡
-- 引流是为了**涨粉建立信任**，转化在微信私域完成
-- 不要在社媒平台上直接推销校园卡，那样会掉粉
-
-### 小红书引流策略（重要）
-- **现状**：小红书现在引流非常难，平台管控严格
-- **核心方法**：目前只能用**表情包/贴纸**的方式引流
-  - 在图片中嵌入表情包或趣味贴纸，引导用户私信或评论
-  - 不要直接在文案中留联系方式，会被限流或封号
-  - 用"评论区见"、"私信我"等隐晦方式引导
-- **内容要求**：每次生成的文案和内容**必须不一样**
-  - 不要重复使用相同的文案模板
-  - 每次都要有新鲜感，换不同的角度、语气、场景
-  - 可以随机组合：不同的开头、不同的故事、不同的emoji搭配
-  - 让每条内容看起来都是原创的、独特的
-
-## 兜底话术
-当知识库中没有相关内容时：
-"你问的问题太深奥啦，小白白还需要继续学习呢～你可以联系负责人了解更多：cml20001011"`;
-
-// 判断问题是否与校园通信业务相关
+// 判断问题是否与校园业务相关
 function isOnTopic(message: string): boolean {
+  // 校园业务相关关键词
   const onTopicKeywords = [
-    "校园卡", "电话卡", "手机卡", "SIM卡", "套餐", "资费", "流量", "通话",
-    "开卡", "激活", "充值", "销户", "补卡", "换卡", "号码",
-    "校园推广", "校园市场", "校园代理", "代理", "招生", "推广",
-    "小红书", "抖音", "社媒", "运营", "引流", "涨粉", "内容创作", "文案",
-    "表情包", "贴纸", "私信", "评论", "限流", "封号",
-    "学长", "学姐", "人设", "账号", "新生", "粉丝", "关注", "私域", "微信",
-    "导流", "加微", "好友", "朋友圈",
+    // 校园卡/电话卡相关
+    "校园卡", "电话卡", "手机卡", "sim卡", "号卡", "流量卡",
+    "套餐", "月租", "流量", "通话", "话费", "资费", "办卡", "开卡", "销户",
+    "移动", "联通", "电信", "运营商",
+    // 学长学姐账号运营相关
+    "学长", "学姐", "账号", "人设", "定位", "引流", "涨粉", "粉丝",
+    "新生", "开学", "校园", "大学", "高校",
+    "小红书", "抖音", "社媒", "运营", "内容", "文案", "笔记", "视频",
+    "表情包", "贴纸", "私信", "评论", "关注", "点赞",
+    "私域", "微信", "导流", "加微", "好友", "朋友圈",
+    // 销售转化相关
     "销售", "话术", "客户", "成交", "转化", "跟进", "签单", "开单",
     "产品", "价格", "竞品", "对比", "优势", "卖点", "业务", "流程",
     "团队", "考核", "培训", "学习", "知识",
+    // 违禁词相关
+    "违禁词", "敏感词", "违规", "限流", "封号",
+    // 通用疑问词
     "怎么", "如何", "什么", "哪", "吗", "呢",
   ];
 
-  if (message.length < 5) {
-    return onTopicKeywords.some(kw => message.includes(kw));
-  }
-
-  return onTopicKeywords.some(kw => message.includes(kw));
+  return onTopicKeywords.some(kw => message.toLowerCase().includes(kw.toLowerCase()));
 }
 
 // 过滤垃圾内容：太短的、代码片段、JSON、URL等
@@ -148,7 +74,6 @@ function isValidKnowledgeContent(content: string): boolean {
 async function gatherKnowledgeContext(
   userMessage: string,
   knowledgeBases: string[],
-  knowledgeClient: KnowledgeClient
 ): Promise<{ context: string; sourcesUsed: string[] }> {
   const sourcesUsed: string[] = [];
 
@@ -165,25 +90,20 @@ async function gatherKnowledgeContext(
     }
 
     // 搜索所有启用的知识库，增加 topK 以获取更多结果
-    const searchResponse = await knowledgeClient.search(
-      userMessage,
-      tableNames,
-      20,  // 增加搜索数量，过滤后保留有效内容
-      0.0
-    );
+    const results = await searchKnowledge(userMessage, tableNames, 20);
 
-    if (searchResponse.code === 0 && searchResponse.chunks && searchResponse.chunks.length > 0) {
+    if (results && results.length > 0) {
       // 过滤垃圾内容
-      const validChunks = searchResponse.chunks.filter(c => isValidKnowledgeContent(c.content));
+      const validResults = results.filter(r => isValidKnowledgeContent(r.content));
       
-      console.log(`[Knowledge] Found ${searchResponse.chunks.length} chunks, ${validChunks.length} valid after filtering`);
-      
-      if (validChunks.length === 0) {
+      console.log(`[Knowledge] Found ${results.length} chunks, ${validResults.length} valid after filtering`);
+
+      if (validResults.length === 0) {
         return { context: "", sourcesUsed: [] };
       }
       
       // 使用过滤后的内容
-      const allContent = validChunks.map((c) => c.content).join("\n\n");
+      const allContent = validResults.map((r) => r.content).join("\n\n");
       
       // 标记使用了哪些知识库（使用中文名称便于展示）
       tableNames.forEach(id => {
@@ -205,48 +125,127 @@ async function gatherKnowledgeContext(
   return { context: "", sourcesUsed: [] };
 }
 
+// 构建 System Prompt
+function buildSystemPrompt(knowledgeContext: string): string {
+  const basePrompt = `你是"小白白"，一位校园业务代理团队的运营教练和知心学姐。
+
+## 核心业务背景（必须理解）
+我们的业务模式是：
+1. 在小红书/抖音上运营"学长学姐"人设的账号（不是校园卡官方号！）
+2. 通过分享校园生活、新生攻略等内容吸引新生关注
+3. 把关注的新生导流到微信私域
+4. 在微信里推荐他们办理校园电话卡
+
+**关键认知**：
+- 我们做的是"学长学姐"账号，不是"校园卡"账号
+- 社媒内容核心是校园生活分享，不是硬推校园卡
+- 引流目的是为了涨粉和建立信任，转化在微信私域完成
+
+## 你的角色定位
+- 身份：团队里的运营前辈，经验丰富但很亲切
+- 语气：像学姐带学弟学妹聊天，口语化、接地气
+- 称呼：可以用"咱们""我们""宝子""同学"等亲切称呼
+- 风格：直接给干货，不说废话，但语气温和
+
+## 回答原则
+1. **像真人聊天**：口语化表达，可以用"嗯""哦""哈哈""～"等语气词
+2. **先说结论**：直接给答案/建议，再解释原因
+3. **给可执行步骤**：不要说空话，每个建议要有具体操作
+4. **用场景举例**：说"比如你可以这样发笔记..."而不是讲理论
+5. **主动延伸**：回答完问题后，顺带提一个相关的小技巧
+
+## 知识库使用规则（最高优先级）
+- 知识库里的内容是团队内部资料，回答时必须优先使用
+- 用自己的话重新表达，不要照搬原文
+- 如果知识库有相关信息，一定要基于知识库回答
+- 如果知识库没有相关内容，诚实说"这个我还没学到呢"
+- 绝对不要编造知识库里没有的具体数据（如价格、套餐详情）
+
+## 内容生成要求（重要）
+- 每次生成的文案/内容必须不一样，保持新鲜感
+- 换不同角度、语气、场景来写
+- 小红书/抖音内容要配合表情包/贴纸风格
+
+## 小红书/抖音引流策略（最新）
+- 现在平台管控非常严格，直接留联系方式会被限流/封号
+- **只能用表情包/贴纸引流**，这是目前最有效的方式
+- 不要在文案中直接写"加微信""加V"等敏感词
+- 引导方式：用隐晦的方式，如"评论区见""私信我""看主页"
+- 内容要自然，像真实学长学姐分享，不要像广告
+
+## 能力边界
+✅ 可以回答：
+- 校园电话卡套餐、资费、办理流程
+- 学长学姐账号运营、内容创作、引流技巧
+- 小红书/抖音运营方法论（表情包引流、内容创作、账号定位）
+- 销售话术、客户跟进、转化技巧
+- 团队协作、考核标准
+
+❌ 拒绝回答：
+- 与校园业务无关的问题（如天气、新闻、娱乐八卦）
+- 涉及公司机密、未公开的战略规划
+- 其他代理的个人业绩、收入信息
+- 无法确认准确性的信息
+
+## 兜底话术
+当知识库没有相关内容时：
+"这个我还没学到呢，可能需要找对接人确认一下。不过你可以先[相关建议]～"
+
+当问题与业务无关时：
+"不好意思呀，这个我不太清楚呢。如果是关于校园卡、账号运营或者销售方面的问题，我倒是可以帮你解答～"`;
+
+  if (!knowledgeContext) {
+    return basePrompt + `\n\n注意：当前没有检索到相关知识库内容，如果用户问的是具体业务问题，请诚实告知"这个我还没学到呢"。`;
+  }
+
+  return basePrompt + `\n\n## 以下是从团队知识库中检索到的相关内容（优先使用这些内容回答）\n\n${knowledgeContext}\n\n---\n请基于以上知识库内容，用你自己的话回答用户的问题。如果知识库内容已经足够回答，就直接回答；如果知识库内容不足以完整回答，可以补充你的专业知识，但要标注哪些是知识库内容，哪些是你的补充。`;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { messages, knowledgeBases = [] } = body;
+    const { messages, knowledgeBases = [] } = body as {
+      messages: Array<{ role: string; content: string }>;
+      knowledgeBases?: string[];
+    };
 
-    if (!messages || !Array.isArray(messages)) {
-      return new Response(JSON.stringify({ error: "消息格式错误" }), {
+    if (!messages || messages.length === 0) {
+      return new Response(JSON.stringify({ error: "消息列表不能为空" }), {
         status: 400,
         headers: { "Content-Type": "application/json" },
       });
     }
 
-    const config = new Config();
-    const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
+    // 获取最后一条用户消息
+    const lastUserMessage = messages.filter(m => m.role === "user").pop();
+    const userMessage = lastUserMessage?.content || "";
 
-    const knowledgeClient = new KnowledgeClient(config, customHeaders);
-    const llmClient = new LLMClient(config, customHeaders);
-
-    const userMessage = messages[messages.length - 1]?.content || "";
-
-    // 前置判断：问题是否与业务相关
+    // 判断问题是否在主题范围内
     const onTopic = isOnTopic(userMessage);
 
-    // 仅从知识库获取内容
-    const { context: knowledgeContext } = await gatherKnowledgeContext(
+    // 1. 仅从知识库检索内容（不使用网络搜索）
+    const { context: knowledgeContext, sourcesUsed } = await gatherKnowledgeContext(
       userMessage,
       knowledgeBases,
-      knowledgeClient
     );
 
-    // 如果问题与业务无关且知识库也没有相关内容，直接拒绝
+    // 如果问题不在主题范围内，且知识库没有相关内容，直接拒绝回答
     if (!onTopic && !knowledgeContext) {
-      const rejectMessage = "这个问题超出了我的服务范围哦～我是专门负责校园通信业务的教练，主要帮大家解答校园卡（电话卡）套餐、校园推广运营、销售转化等方面的问题。有其他业务相关的问题随时问我！";
+      const rejectResponse = "不好意思呀，这个问题我不太清楚呢。我是小白白，主要负责校园卡业务、学长学姐账号运营、销售转化这些方面。如果是关于这些方面的问题，我很乐意帮你解答～";
+      
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
-        start(controller) {
-          const data = `data: ${JSON.stringify({ content: rejectMessage })}\n\n`;
-          controller.enqueue(encoder.encode(data));
+        async start(controller) {
+          const words = rejectResponse.split("");
+          for (const char of words) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: char })}\n\n`));
+            await new Promise(resolve => setTimeout(resolve, 30));
+          }
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
         },
       });
+
       return new Response(stream, {
         headers: {
           "Content-Type": "text/event-stream",
@@ -256,52 +255,36 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 构建系统提示词
-    let systemPrompt = SYSTEM_PROMPT;
-    if (knowledgeContext) {
-      systemPrompt += `\n\n---\n\n# 你学到的知识（基于这些内容来回答）\n\n${knowledgeContext}\n\n---\n\n请基于以上你学到的知识，用你自己的话自然地回答用户的问题。不要生硬地引用原文，而是理解后用口语化的方式表达。如果知识中没有相关内容，诚实告知。`;
-    } else {
-      systemPrompt += `\n\n---\n\n注意：当前知识库中没有找到与用户问题直接相关的内容。如果问题是业务相关的，请基于你的角色定位给出建议，但要说明"这个我还没学到，可能需要确认一下"。如果问题与业务无关，请礼貌拒绝。`;
-    }
+    // 2. 构建 System Prompt（根据是否有知识库内容使用不同策略）
+    const systemPrompt = buildSystemPrompt(knowledgeContext);
 
-    const chatMessages = [
+    // 3. 构建消息列表
+    const chatMessages: ChatMessage[] = [
       { role: "system", content: systemPrompt },
-      ...messages,
+      ...messages.map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      })),
     ];
 
-    const llmStream = llmClient.stream(chatMessages, {
-      model: "doubao-seed-2-0-lite-260215",
-      temperature: 0.7,
-    });
+    // 4. 调用 LLM 流式生成
+    const llmStream = streamChat(chatMessages);
 
+    // 5. 转换流格式
     const encoder = new TextEncoder();
-
-    // 使用 TransformStream 将 AsyncGenerator 转换为 SSE 流
-    const transformStream = new TransformStream({
-      async transform(chunk, controller) {
-        if (chunk.content) {
-          const output = `data: ${JSON.stringify({ content: chunk.content.toString() })}\n\n`;
-          controller.enqueue(encoder.encode(output));
-        }
-      },
-      flush(controller) {
-        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-      },
-    });
-
-    // 将 AsyncGenerator 转换为 ReadableStream
     let isClosed = false;
-    const readableStream = new ReadableStream({
+
+    const transformStream = new ReadableStream({
       async start(controller) {
         try {
-          for await (const chunk of llmStream) {
+          for await (const content of llmStream) {
             if (isClosed) break;
-            if (chunk.content) {
-              const output = `data: ${JSON.stringify({ content: chunk.content.toString() })}\n\n`;
+            if (content) {
               try {
-                controller.enqueue(encoder.encode(output));
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ content })}\n\n`)
+                );
               } catch {
-                // Controller 已关闭，停止写入
                 isClosed = true;
                 break;
               }
@@ -312,12 +295,20 @@ export async function POST(request: NextRequest) {
             controller.close();
           }
         } catch (error) {
+          console.error("LLM stream error:", error);
           if (!isClosed) {
-            console.error("LLM stream error:", error);
             try {
-              controller.error(error);
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({
+                    content: "\n\n抱歉，生成回答时出现了问题，请重试。",
+                  })}\n\n`
+                )
+              );
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
             } catch {
-              // 忽略已关闭的 controller
+              // Controller already closed
             }
           }
         }
@@ -327,7 +318,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return new Response(readableStream, {
+    return new Response(transformStream, {
       headers: {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
@@ -337,7 +328,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Chat API error:", error);
     return new Response(
-      JSON.stringify({ error: "服务器内部错误" }),
+      JSON.stringify({ error: "服务器内部错误，请稍后重试" }),
       {
         status: 500,
         headers: { "Content-Type": "application/json" },
