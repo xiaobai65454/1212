@@ -1,5 +1,27 @@
 [
   {
+    "title": "校园卡资费",
+    "knowledgeBase": "business_basics",
+    "type": "text",
+    "preview": "校园卡月租 39  160g全国流量 100分钟通话 100条短信",
+    "docIds": [
+      "7659814651722629154"
+    ],
+    "id": "doc_1783443306886_icihsb",
+    "createdAt": "2026-07-07T16:55:06.886Z"
+  },
+  {
+    "title": "未命名文档",
+    "knowledgeBase": "business_basics",
+    "type": "text",
+    "preview": "校园卡套餐 39 月租 100g全国流量 100分钟通话",
+    "docIds": [
+      "7659822106833715246"
+    ],
+    "id": "doc_1783443242972_lsyn81",
+    "createdAt": "2026-07-07T16:54:02.972Z"
+  },
+  {
     "title": "测试文档",
     "knowledgeBase": "business_basics",
     "type": "text",

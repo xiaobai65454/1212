@@ -88,14 +88,14 @@ async function gatherKnowledgeContext(
   }
 
   try {
-    const tableNames = knowledgeBases
-      .map(id => KNOWLEDGE_BASE_NAMES[id])
-      .filter(Boolean);
+    // 直接使用知识库 ID 作为数据集名称（与创建时一致）
+    const tableNames = knowledgeBases.filter(Boolean);
 
     if (tableNames.length === 0) {
       return { context: "", sourcesUsed: [] };
     }
 
+    // 搜索所有启用的知识库
     const searchResponse = await knowledgeClient.search(
       userMessage,
       tableNames,
@@ -104,21 +104,17 @@ async function gatherKnowledgeContext(
     );
 
     if (searchResponse.code === 0 && searchResponse.chunks && searchResponse.chunks.length > 0) {
-      const knowledgeSections = knowledgeBases
-        .map(id => {
-          const name = KNOWLEDGE_BASE_NAMES[id];
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const chunks = searchResponse.chunks!.filter(
-            (c) => (c as any).metadata?.dataset_name === name
-          );
-          if (chunks.length === 0) return null;
-          sourcesUsed.push(name);
-          return chunks.map((c) => c.content).join("\n\n");
-        })
-        .filter(Boolean);
+      // 直接使用搜索结果
+      const allContent = searchResponse.chunks.map((c) => c.content).join("\n\n");
+      
+      // 标记使用了哪些知识库（使用中文名称便于展示）
+      tableNames.forEach(id => {
+        const name = KNOWLEDGE_BASE_NAMES[id] || id;
+        sourcesUsed.push(name);
+      });
 
       return {
-        context: knowledgeSections.join("\n\n---\n\n"),
+        context: allContent,
         sourcesUsed,
       };
     }
