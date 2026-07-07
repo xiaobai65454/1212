@@ -1,7 +1,18 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import type { ReactNode } from "react";
 import type { KnowledgeBase } from "./chat-interface";
+
+interface LinkItem {
+  id: string;
+  title: string;
+  url: string;
+  icon: string;
+  position: string;
+  enabled: boolean;
+  order: number;
+}
 
 interface ChatSidebarProps {
   knowledgeBases: KnowledgeBase[];
@@ -41,15 +52,34 @@ export function ChatSidebar({
   messageCount,
   onClose,
 }: ChatSidebarProps) {
+  const [sidebarLinks, setSidebarLinks] = useState<LinkItem[]>([]);
+
+  useEffect(() => {
+    fetch("/api/config")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.config?.links) {
+          setSidebarLinks(
+            data.config.links
+              .filter((l: LinkItem) => l.enabled && l.position === "sidebar")
+              .sort((a: LinkItem, b: LinkItem) => a.order - b.order)
+          );
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <div className="w-72 h-full bg-white border-r border-gray-100 flex flex-col">
       {/* Header */}
       <div className="p-4 border-b border-gray-100">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#FF6B4A] to-[#FF8A6A] flex items-center justify-center shadow-sm">
-              <span className="text-lg">🐾</span>
-            </div>
+            <img
+              src="/bot-avatar.jpg"
+              alt="小白白"
+              className="w-9 h-9 rounded-full object-cover shadow-sm"
+            />
             <div>
               <h2 className="text-sm font-semibold text-[#1A1A2E]">小白白</h2>
               <p className="text-xs text-[#9CA3AF]">代理运营教练</p>
@@ -119,6 +149,33 @@ export function ChatSidebar({
             })}
           </div>
         </div>
+
+        {/* External Links */}
+        {sidebarLinks.length > 0 && (
+          <div>
+            <h3 className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider mb-3">
+              快捷链接
+            </h3>
+            <div className="space-y-1">
+              {sidebarLinks.map((link) => (
+                <a
+                  key={link.id}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[#1A1A2E] hover:bg-gray-50 transition-colors group"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 group-hover:text-[#FF6B4A] transition-colors">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                    <polyline points="15 3 21 3 21 9" />
+                    <line x1="10" y1="14" x2="21" y2="3" />
+                  </svg>
+                  <span className="truncate">{link.title}</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Stats */}
         <div>

@@ -19,9 +19,11 @@ export function MobileHeader({ onMenuClick }: MobileHeaderProps) {
       </button>
 
       <div className="flex items-center gap-2">
-        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#FF6B4A] to-[#FF8A6A] flex items-center justify-center">
-          <span className="text-xs">🐾</span>
-        </div>
+        <img
+          src="/bot-avatar.jpg"
+          alt="小白白"
+          className="w-7 h-7 rounded-full object-cover"
+        />
         <span className="text-sm font-semibold text-[#1A1A2E]">小白白</span>
       </div>
 

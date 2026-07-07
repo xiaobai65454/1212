@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -21,6 +22,10 @@ import {
   X,
   CheckCircle,
   AlertCircle,
+  Loader2,
+  LogOut,
+  Settings,
+  ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +47,32 @@ interface DocRecord {
   type: "text" | "url" | "file";
   createdAt: string;
   preview: string;
+}
+
+interface LinkItem {
+  id: string;
+  title: string;
+  url: string;
+  icon: string;
+  position: string;
+  enabled: boolean;
+  order: number;
+}
+
+interface WechatConfig {
+  enabled: boolean;
+  title: string;
+  description: string;
+  qrcodeUrl: string;
+  wechatId: string;
+  buttonText: string;
+  popupDelay: number;
+  showOnFirstVisit: boolean;
+}
+
+interface AppConfig {
+  wechat: WechatConfig;
+  links: LinkItem[];
 }
 
 // ===== Constants =====
@@ -71,12 +102,75 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 // ===== Main Page =====
 export default function KnowledgePage() {
-  const [activeTab, setActiveTab] = useState<"overview" | string>("overview");
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState<"overview" | "settings" | string>("overview");
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [documents, setDocuments] = useState<DocRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [config, setConfig] = useState<AppConfig | null>(null);
+  const [showConfigSave, setShowConfigSave] = useState(false);
+
+  // 检查登录状态
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const res = await fetch('/api/auth/login');
+        const data = await res.json();
+        if (!data.loggedIn) {
+          router.push('/login');
+          return;
+        }
+        setLoggedIn(true);
+      } catch (err) {
+        router.push('/login');
+      } finally {
+        setCheckingAuth(false);
+      }
+    };
+    checkAuth();
+  }, [router]);
+
+  // 退出登录
+  const handleLogout = async () => {
+    await fetch('/api/auth/login', { method: 'DELETE' });
+    router.push('/login');
+  };
+
+  // 加载配置
+  const loadConfig = useCallback(async () => {
+    try {
+      const res = await fetch('/api/config');
+      const data = await res.json();
+      if (data.success) {
+        setConfig(data.config);
+      }
+    } catch (err) {
+      console.error('Failed to load config:', err);
+    }
+  }, []);
+
+  // 保存配置
+  const saveConfig = async (newConfig: Partial<AppConfig>) => {
+    try {
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newConfig),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setConfig(data.config);
+        setShowConfigSave(true);
+        setTimeout(() => setShowConfigSave(false), 2000);
+      }
+    } catch (err) {
+      console.error('Failed to save config:', err);
+    }
+  };
 
   const fetchData = useCallback(async () => {
     try {
@@ -89,16 +183,34 @@ export default function KnowledgePage() {
 
       if (kbData.success) setKnowledgeBases(kbData.knowledgeBases);
       if (docsData.success) setDocuments(docsData.documents);
+      
+      // 加载配置
+      await loadConfig();
     } catch (error) {
       console.error("Failed to fetch data:", error);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadConfig]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (loggedIn) {
+      fetchData();
+    }
+  }, [fetchData, loggedIn]);
+
+  // 加载中状态
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#F5F0EB]">
+        <Loader2 className="w-8 h-8 animate-spin text-[#FF6B4A]" />
+      </div>
+    );
+  }
+
+  if (!loggedIn) {
+    return null;
+  }
 
   const filteredDocs = documents.filter((doc) => {
     const matchesSearch =
@@ -144,6 +256,25 @@ export default function KnowledgePage() {
               <RefreshCw className="w-4 h-4" />
             </button>
             <button
+              onClick={() => setActiveTab(activeTab === "settings" ? "overview" : "settings")}
+              className={cn(
+                "p-2 rounded-lg transition-colors",
+                activeTab === "settings" 
+                  ? "bg-[#FF6B4A]/10 text-[#FF6B4A]" 
+                  : "hover:bg-gray-100 text-gray-500"
+              )}
+              title="系统设置"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+            <button
+              onClick={handleLogout}
+              className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+              title="退出登录"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+            <button
               onClick={() => setShowAddModal(true)}
               className="flex items-center gap-2 px-4 py-2 bg-[#FF6B4A] text-white rounded-lg hover:bg-[#FF5A3A] transition-colors shadow-sm"
             >
@@ -187,154 +318,366 @@ export default function KnowledgePage() {
           })}
         </div>
 
-        {/* Content Area */}
-        <div className="bg-white rounded-xl shadow-sm">
-          {/* Toolbar */}
-          <div className="px-4 sm:px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-semibold text-[#1A1A2E]">
-                {activeTab === "overview" ? "全部文档" : KB_CONFIG[activeTab]?.name}
-              </h2>
-              <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                {filteredDocs.length} 篇
-              </span>
-            </div>
-            <div className="relative w-full sm:w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="搜索文档..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF6B4A]/20 focus:border-[#FF6B4A]"
-              />
-            </div>
-          </div>
+        {/* Settings Panel */}
+        {activeTab === "settings" && config && (
+          <div className="space-y-6">
+            {/* Save Success Toast */}
+            {showConfigSave && (
+              <div className="fixed top-20 right-6 z-50 flex items-center gap-2 px-4 py-3 bg-green-500 text-white rounded-lg shadow-lg animate-in fade-in slide-in-from-top-2">
+                <CheckCircle className="w-4 h-4" />
+                <span className="text-sm">配置已保存</span>
+              </div>
+            )}
 
-          {/* Document List */}
-          {loading ? (
-            <div className="p-12 text-center text-gray-400">
-              <RefreshCw className="w-6 h-6 mx-auto mb-2 animate-spin" />
-              <p className="text-sm">加载中...</p>
+            {/* WeChat Popup Settings */}
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-green-500" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 0 1 .213.665l-.39 1.48c-.019.07-.048.141-.048.213 0 .163.13.295.29.295a.326.326 0 0 0 .167-.054l1.903-1.114a.864.864 0 0 1 .717-.098 10.16 10.16 0 0 0 2.837.403c.276 0 .543-.027.811-.05-.857-2.578.157-4.972 1.932-6.446 1.703-1.415 3.882-1.98 5.853-1.838-.576-3.583-4.196-6.348-8.596-6.348zM5.785 5.991c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178A1.17 1.17 0 0 1 4.623 7.17c0-.651.52-1.18 1.162-1.18zm5.813 0c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178 1.17 1.17 0 0 1-1.162-1.178c0-.651.52-1.18 1.162-1.18zm5.34 2.867c-1.797-.052-3.746.512-5.28 1.786-1.72 1.428-2.687 3.72-1.78 6.22.942 2.453 3.666 4.229 6.884 4.229.826 0 1.622-.12 2.361-.336a.722.722 0 0 1 .598.082l1.584.926a.272.272 0 0 0 .14.047c.134 0 .24-.111.24-.247 0-.06-.023-.12-.038-.177l-.327-1.233a.582.582 0 0 1-.023-.156.49.49 0 0 1 .201-.398C23.024 18.48 24 16.82 24 14.98c0-3.21-2.931-5.837-7.062-6.122zm-2.18 3.31c.535 0 .969.44.969.982a.976.976 0 0 1-.969.983.976.976 0 0 1-.969-.983c0-.542.434-.982.97-.982zm4.844 0c.535 0 .969.44.969.982a.976.976 0 0 1-.969.983.976.976 0 0 1-.969-.983c0-.542.434-.982.97-.982z"/>
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-[#1A1A2E]">微信弹窗设置</h3>
+                  <p className="text-xs text-gray-500">配置首页自动弹出的微信添加引导</p>
+                </div>
+                <label className="ml-auto flex items-center gap-2 cursor-pointer">
+                  <span className="text-sm text-gray-500">启用</span>
+                  <input
+                    type="checkbox"
+                    checked={config.wechat.enabled}
+                    onChange={(e) => saveConfig({ wechat: { ...config.wechat, enabled: e.target.checked } })}
+                    className="w-10 h-5 rounded-full appearance-none bg-gray-200 checked:bg-green-500 relative transition-colors cursor-pointer before:content-[''] before:absolute before:w-4 before:h-4 before:bg-white before:rounded-full before:top-0.5 before:left-0.5 before:transition-transform checked:before:translate-x-5 before:shadow"
+                  />
+                </label>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1.5">弹窗标题</label>
+                  <input
+                    type="text"
+                    value={config.wechat.title}
+                    onChange={(e) => setConfig({ ...config, wechat: { ...config.wechat, title: e.target.value } })}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF6B4A]/20 focus:border-[#FF6B4A]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1.5">微信号</label>
+                  <input
+                    type="text"
+                    value={config.wechat.wechatId}
+                    onChange={(e) => setConfig({ ...config, wechat: { ...config.wechat, wechatId: e.target.value } })}
+                    placeholder="例如：xiaobaibai2024"
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF6B4A]/20 focus:border-[#FF6B4A]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1.5">描述文字</label>
+                  <input
+                    type="text"
+                    value={config.wechat.description}
+                    onChange={(e) => setConfig({ ...config, wechat: { ...config.wechat, description: e.target.value } })}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF6B4A]/20 focus:border-[#FF6B4A]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1.5">按钮文字</label>
+                  <input
+                    type="text"
+                    value={config.wechat.buttonText}
+                    onChange={(e) => setConfig({ ...config, wechat: { ...config.wechat, buttonText: e.target.value } })}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF6B4A]/20 focus:border-[#FF6B4A]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1.5">二维码图片链接</label>
+                  <input
+                    type="text"
+                    value={config.wechat.qrcodeUrl}
+                    onChange={(e) => setConfig({ ...config, wechat: { ...config.wechat, qrcodeUrl: e.target.value } })}
+                    placeholder="上传二维码后粘贴链接"
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF6B4A]/20 focus:border-[#FF6B4A]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1.5">弹窗延迟（毫秒）</label>
+                  <input
+                    type="number"
+                    value={config.wechat.popupDelay}
+                    onChange={(e) => setConfig({ ...config, wechat: { ...config.wechat, popupDelay: parseInt(e.target.value) || 3000 } })}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF6B4A]/20 focus:border-[#FF6B4A]"
+                  />
+                </div>
+              </div>
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={() => saveConfig({ wechat: config.wechat })}
+                  className="px-4 py-2 bg-[#FF6B4A] text-white text-sm rounded-lg hover:bg-[#FF5A3A] transition-colors"
+                >
+                  保存微信设置
+                </button>
+              </div>
             </div>
-          ) : filteredDocs.length === 0 ? (
-            <div className="p-12 text-center">
-              <FileText className="w-10 h-10 mx-auto mb-3 text-gray-300" />
-              <p className="text-sm text-gray-500 mb-1">
-                {searchQuery ? "没有找到匹配的文档" : "暂无文档"}
-              </p>
-              <p className="text-xs text-gray-400">
-                {searchQuery ? "试试其他关键词" : "点击右上角「添加知识」开始构建知识库"}
-              </p>
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-50">
-              {filteredDocs.map((doc) => {
-                const kbConfig = KB_CONFIG[doc.knowledgeBase];
-                return (
-                  <div
-                    key={doc.id}
-                    className="px-4 sm:px-6 py-4 hover:bg-gray-50/50 transition-colors group"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div
-                        className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
-                        style={{ backgroundColor: `${kbConfig?.color}15` }}
-                      >
-                        {doc.type === "file" ? (
-                          <Upload className="w-4 h-4" style={{ color: kbConfig?.color }} />
-                        ) : doc.type === "url" ? (
-                          <LinkIcon className="w-4 h-4" style={{ color: kbConfig?.color }} />
-                        ) : (
-                          <FileText className="w-4 h-4" style={{ color: kbConfig?.color }} />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h4 className="text-sm font-medium text-[#1A1A2E] truncate">
-                            {doc.title}
-                          </h4>
-                          <span
-                            className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
-                            style={{
-                              backgroundColor: `${kbConfig?.color}15`,
-                              color: kbConfig?.color,
-                            }}
-                          >
-                            {doc.knowledgeBaseName}
-                          </span>
-                        </div>
-                        <p className="text-xs text-gray-500 line-clamp-2 mb-1.5">{doc.preview}</p>
-                        <div className="flex items-center gap-3 text-[11px] text-gray-400">
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {new Date(doc.createdAt).toLocaleString("zh-CN")}
-                          </span>
-                          <span
-                            className="px-1.5 py-0.5 rounded"
-                            style={{
-                              backgroundColor:
-                                doc.type === "file"
-                                  ? "#8B5CF615"
-                                  : doc.type === "url"
-                                    ? "#3B82F615"
-                                    : "#10B98115",
-                              color:
-                                doc.type === "file"
-                                  ? "#8B5CF6"
-                                  : doc.type === "url"
-                                    ? "#3B82F6"
-                                    : "#10B981",
-                            }}
-                          >
-                            {doc.type === "file" ? "文件上传" : doc.type === "url" ? "URL 导入" : "文本输入"}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
+
+            {/* External Links Settings */}
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
+                    <ExternalLink className="w-5 h-5 text-blue-500" />
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Tips Section */}
-        <div className="mt-6 bg-white rounded-xl p-4 sm:p-6 shadow-sm">
-          <h3 className="text-sm font-semibold text-[#1A1A2E] mb-3">使用指南</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center shrink-0">
-                <FileText className="w-4 h-4 text-green-600" />
+                  <div>
+                    <h3 className="font-semibold text-[#1A1A2E]">外链配置</h3>
+                    <p className="text-xs text-gray-500">配置页面中的快捷跳转链接</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    const newLink: LinkItem = {
+                      id: `link${Date.now()}`,
+                      title: '新链接',
+                      url: '',
+                      icon: 'external-link',
+                      position: 'sidebar',
+                      enabled: true,
+                      order: config.links.length + 1,
+                    };
+                    saveConfig({ links: [...config.links, newLink] });
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-[#FF6B4A] border border-[#FF6B4A]/20 rounded-lg hover:bg-[#FF6B4A]/5 transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  添加链接
+                </button>
               </div>
-              <div>
-                <h4 className="text-xs font-medium text-[#1A1A2E] mb-0.5">文本输入</h4>
-                <p className="text-[11px] text-gray-500">粘贴 FAQ、话术、操作手册，支持 Markdown</p>
+              <div className="space-y-3">
+                {config.links.map((link, index) => (
+                  <div key={link.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <input
+                        type="text"
+                        value={link.title}
+                        onChange={(e) => {
+                          const newLinks = [...config.links];
+                          newLinks[index] = { ...link, title: e.target.value };
+                          setConfig({ ...config, links: newLinks });
+                        }}
+                        placeholder="链接标题"
+                        className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF6B4A]/20"
+                      />
+                      <input
+                        type="text"
+                        value={link.url}
+                        onChange={(e) => {
+                          const newLinks = [...config.links];
+                          newLinks[index] = { ...link, url: e.target.value };
+                          setConfig({ ...config, links: newLinks });
+                        }}
+                        placeholder="https://..."
+                        className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF6B4A]/20"
+                      />
+                      <select
+                        value={link.position}
+                        onChange={(e) => {
+                          const newLinks = [...config.links];
+                          newLinks[index] = { ...link, position: e.target.value };
+                          setConfig({ ...config, links: newLinks });
+                        }}
+                        className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF6B4A]/20"
+                      >
+                        <option value="sidebar">侧边栏</option>
+                        <option value="header">顶部导航</option>
+                        <option value="footer">底部</option>
+                        <option value="popup">弹窗</option>
+                      </select>
+                    </div>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={link.enabled}
+                        onChange={(e) => {
+                          const newLinks = [...config.links];
+                          newLinks[index] = { ...link, enabled: e.target.checked };
+                          setConfig({ ...config, links: newLinks });
+                        }}
+                        className="w-4 h-4 rounded border-gray-300 text-[#FF6B4A] focus:ring-[#FF6B4A]"
+                      />
+                      <span className="text-xs text-gray-500">启用</span>
+                    </label>
+                    <button
+                      onClick={() => {
+                        const newLinks = config.links.filter((_, i) => i !== index);
+                        saveConfig({ links: newLinks });
+                      }}
+                      className="p-1.5 text-gray-400 hover:text-red-500 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
               </div>
-            </div>
-            <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
-                <LinkIcon className="w-4 h-4 text-blue-600" />
-              </div>
-              <div>
-                <h4 className="text-xs font-medium text-[#1A1A2E] mb-0.5">URL 导入</h4>
-                <p className="text-[11px] text-gray-500">输入在线文档链接，自动抓取学习内容</p>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center shrink-0">
-                <Upload className="w-4 h-4 text-purple-600" />
-              </div>
-              <div>
-                <h4 className="text-xs font-medium text-[#1A1A2E] mb-0.5">文档上传</h4>
-                <p className="text-[11px] text-gray-500">支持 PDF/Word/TXT/MD/CSV，自动解析内容</p>
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={() => saveConfig({ links: config.links })}
+                  className="px-4 py-2 bg-[#FF6B4A] text-white text-sm rounded-lg hover:bg-[#FF5A3A] transition-colors"
+                >
+                  保存外链配置
+                </button>
               </div>
             </div>
           </div>
-        </div>
-      </div>
+        )}
 
-      {/* Add Modal */}
+        {/* Content Area */}
+        {activeTab !== "settings" && (
+          <>
+            <div className="bg-white rounded-xl shadow-sm">
+              {/* Toolbar */}
+              <div className="px-4 sm:px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-semibold text-[#1A1A2E]">
+                    {activeTab === "overview" ? "全部文档" : KB_CONFIG[activeTab]?.name}
+                  </h2>
+                  <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                    {filteredDocs.length} 篇
+                  </span>
+                </div>
+                <div className="relative w-full sm:w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="搜索文档..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF6B4A]/20 focus:border-[#FF6B4A]"
+                  />
+                </div>
+              </div>
+
+              {/* Document List */}
+              {loading ? (
+                <div className="p-12 text-center text-gray-400">
+                  <RefreshCw className="w-6 h-6 mx-auto mb-2 animate-spin" />
+                  <p className="text-sm">加载中...</p>
+                </div>
+              ) : filteredDocs.length === 0 ? (
+                <div className="p-12 text-center">
+                  <FileText className="w-10 h-10 mx-auto mb-3 text-gray-300" />
+                  <p className="text-sm text-gray-500 mb-1">
+                    {searchQuery ? "没有找到匹配的文档" : "暂无文档"}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {searchQuery ? "试试其他关键词" : "点击右上角「添加知识」开始构建知识库"}
+                  </p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-50">
+                  {filteredDocs.map((doc) => {
+                    const kbConfig = KB_CONFIG[doc.knowledgeBase];
+                    return (
+                      <div
+                        key={doc.id}
+                        className="px-4 sm:px-6 py-4 hover:bg-gray-50/50 transition-colors group"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div
+                            className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
+                            style={{ backgroundColor: `${kbConfig?.color}15` }}
+                          >
+                            {doc.type === "file" ? (
+                              <Upload className="w-4 h-4" style={{ color: kbConfig?.color }} />
+                            ) : doc.type === "url" ? (
+                              <LinkIcon className="w-4 h-4" style={{ color: kbConfig?.color }} />
+                            ) : (
+                              <FileText className="w-4 h-4" style={{ color: kbConfig?.color }} />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className="text-sm font-medium text-[#1A1A2E] truncate">
+                                {doc.title}
+                              </h4>
+                              <span
+                                className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
+                                style={{
+                                  backgroundColor: `${kbConfig?.color}15`,
+                                  color: kbConfig?.color,
+                                }}
+                              >
+                                {doc.knowledgeBaseName}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-500 line-clamp-2 mb-1.5">{doc.preview}</p>
+                            <div className="flex items-center gap-3 text-[11px] text-gray-400">
+                              <span className="flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                {new Date(doc.createdAt).toLocaleString("zh-CN")}
+                              </span>
+                              <span
+                                className="px-1.5 py-0.5 rounded"
+                                style={{
+                                  backgroundColor:
+                                    doc.type === "file"
+                                      ? "#8B5CF615"
+                                      : doc.type === "url"
+                                        ? "#3B82F615"
+                                        : "#10B98115",
+                                  color:
+                                    doc.type === "file"
+                                      ? "#8B5CF6"
+                                      : doc.type === "url"
+                                        ? "#3B82F6"
+                                        : "#10B981",
+                                }}
+                              >
+                                {doc.type === "file" ? "文件上传" : doc.type === "url" ? "URL 导入" : "文本输入"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Tips Section */}
+            <div className="mt-6 bg-white rounded-xl p-4 sm:p-6 shadow-sm">
+              <h3 className="text-sm font-semibold text-[#1A1A2E] mb-3">使用指南</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="flex gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center shrink-0">
+                    <FileText className="w-4 h-4 text-green-600" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-medium text-[#1A1A2E] mb-0.5">文本输入</h4>
+                    <p className="text-[11px] text-gray-500">粘贴 FAQ、话术、操作手册，支持 Markdown</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
+                    <LinkIcon className="w-4 h-4 text-blue-600" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-medium text-[#1A1A2E] mb-0.5">URL 导入</h4>
+                    <p className="text-[11px] text-gray-500">输入在线文档链接，自动抓取学习内容</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center shrink-0">
+                    <Upload className="w-4 h-4 text-purple-600" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-medium text-[#1A1A2E] mb-0.5">文档上传</h4>
+                    <p className="text-[11px] text-gray-500">支持 PDF/Word/TXT/MD/CSV，自动解析内容</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
       {showAddModal && (
         <AddKnowledgeModal
           onClose={() => setShowAddModal(false)}

@@ -287,9 +287,11 @@ export default function AdminPage() {
             </Link>
             <div className="w-px h-5 bg-gray-200" />
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#FF6B4A] to-[#FF8A6A] flex items-center justify-center">
-                <span className="text-sm">🐾</span>
-              </div>
+              <img
+                src="/bot-avatar.jpg"
+                alt="小白白"
+                className="w-8 h-8 rounded-full object-cover"
+              />
               <div>
                 <h1 className="text-base font-semibold text-[#1A1A2E]">知识库管理</h1>
                 <p className="text-xs text-[#9CA3AF]">管理小白白的知识，让它越来越聪明</p>

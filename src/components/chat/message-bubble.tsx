@@ -26,9 +26,11 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
             我
           </div>
         ) : (
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#FF6B4A] to-[#FF8A6A] flex items-center justify-center shadow-sm">
-            <span className="text-sm">🐾</span>
-          </div>
+          <img
+            src="/bot-avatar.jpg"
+            alt="小白白"
+            className="w-8 h-8 rounded-full object-cover shadow-sm"
+          />
         )}
       </div>
 

@@ -1,0 +1,41 @@
+{
+  "wechat": {
+    "enabled": true,
+    "title": "添加微信",
+    "description": "扫码添加微信，获取更多资讯",
+    "qrcodeUrl": "",
+    "wechatId": "",
+    "buttonText": "立即添加",
+    "popupDelay": 3000,
+    "showOnFirstVisit": true
+  },
+  "links": [
+    {
+      "id": "link1",
+      "title": "官方公众号",
+      "url": "",
+      "icon": "megaphone",
+      "position": "sidebar",
+      "enabled": true,
+      "order": 1
+    },
+    {
+      "id": "link2",
+      "title": "在线咨询",
+      "url": "",
+      "icon": "message-circle",
+      "position": "sidebar",
+      "enabled": true,
+      "order": 2
+    },
+    {
+      "id": "link3",
+      "title": "查看更多",
+      "url": "",
+      "icon": "external-link",
+      "position": "header",
+      "enabled": true,
+      "order": 3
+    }
+  ]
+}

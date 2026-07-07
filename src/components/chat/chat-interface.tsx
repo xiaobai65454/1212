@@ -275,9 +275,11 @@ function WelcomeScreen({
       <div className="max-w-2xl w-full text-center space-y-8">
         {/* Avatar */}
         <div className="flex justify-center">
-          <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#FF6B4A] to-[#FF8A6A] flex items-center justify-center shadow-lg shadow-[#FF6B4A]/20">
-            <span className="text-3xl">🐾</span>
-          </div>
+          <img
+            src="/bot-avatar.jpg"
+            alt="小白白"
+            className="w-20 h-20 rounded-full object-cover shadow-lg shadow-[#FF6B4A]/20"
+          />
         </div>
 
         {/* Greeting */}
