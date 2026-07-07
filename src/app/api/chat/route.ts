@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
   }
 
   const fullSystemPrompt = referenceSection
-    ? `${SYSTEM_PROMPT}\n\n---\n\n# 参考信息\n${referenceSection}\n\n---\n\n请整合以上所有来源的信息，优化后给出最佳回答。`
+    ? `${SYSTEM_PROMPT}\n\n---\n\n# 参考信息\n${referenceSection}\n\n---\n\n请整合以上所有来源的信息，优化后给出最佳回答。直接输出优化后的内容，不要标注来源。`
     : SYSTEM_PROMPT;
 
   const chatMessages = [
@@ -155,12 +155,6 @@ export async function POST(request: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        // 先发送来源信息
-        if (sourcesUsed.length > 0) {
-          const sourcesData = `data: ${JSON.stringify({ sources: sourcesUsed })}\n\n`;
-          controller.enqueue(encoder.encode(sourcesData));
-        }
-
         const llmStream = llmClient.stream(chatMessages, {
           model: "doubao-seed-2-0-lite-260215",
           temperature: 0.7,
