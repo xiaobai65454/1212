@@ -4,7 +4,7 @@
     "title": "添加微信",
     "description": "扫码添加微信，获取更多资讯",
     "qrcodeUrl": "",
-    "wechatId": "",
+    "wechatId": "132464",
     "buttonText": "立即添加",
     "popupDelay": 3000,
     "showOnFirstVisit": true
