@@ -206,6 +206,19 @@ export function ChatInterface() {
 
             setIsStreaming(false);
             abortControllerRef.current = null;
+
+            // 保存回答到历史记录
+            if (accumulated && userMessage) {
+                fetch("/api/history", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        action: "save",
+                        question: userMessage,
+                        answer: accumulated,
+                    }),
+                }).catch(() => {}); // 静默失败
+            }
         }
     }, [isStreaming, messages, activeKnowledgeBases]);
 

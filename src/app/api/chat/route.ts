@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { streamChat, type ChatMessage } from "@/lib/llm-client";
 import { search as searchKnowledge } from "@/lib/knowledge-client";
+import { searchHistory } from "@/lib/response-history";
 
 // 知识库名称映射（ID -> 中文名）
 const KNOWLEDGE_BASE_NAMES: Record<string, string> = {
@@ -182,6 +183,40 @@ export async function POST(request: NextRequest) {
     const lastUserMessage = messages.filter(m => m.role === "user").pop();
     const userMessage = lastUserMessage?.content || "";
 
+    // 0.5 检索历史回答（优先复用，在主题检查之前）
+    if (lastUserMessage) {
+      const historyMatch = searchHistory(lastUserMessage.content, 0.6);
+      if (historyMatch) {
+        console.log(`[Chat] 命中历史回答，直接返回缓存`);
+        const encoder = new TextEncoder();
+        const cachedAnswer = historyMatch.answer;
+
+        const stream = new ReadableStream({
+          async start(controller) {
+            try {
+              const words = cachedAnswer.split("");
+              for (const char of words) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: char })}\n\n`));
+                await new Promise(resolve => setTimeout(resolve, 15)); // 快速输出
+              }
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
+            } catch {
+              if (!isClosed) controller.close();
+            }
+          },
+        });
+
+        return new Response(stream, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+          },
+        });
+      }
+    }
+
     // 判断问题是否在主题范围内
     const onTopic = isOnTopic(userMessage);
 
@@ -236,6 +271,8 @@ export async function POST(request: NextRequest) {
     // 5. 转换流格式
     const encoder = new TextEncoder();
     let isClosed = false;
+    let fullResponse = "";
+    const userQuestion = messages.filter(m => m.role === "user").pop()?.content || "";
 
     const transformStream = new ReadableStream({
       async start(controller) {
@@ -243,6 +280,7 @@ export async function POST(request: NextRequest) {
           for await (const content of llmStream) {
             if (isClosed) break;
             if (content) {
+              fullResponse += content;
               try {
                 controller.enqueue(
                   encoder.encode(`data: ${JSON.stringify({ content })}\n\n`)
