@@ -221,22 +221,17 @@ export function ChatInterface() {
                 }).catch(() => {}); // 静默失败
 
                 // 获取猜你想问
-                const chatMessages = [...messages, userMessage].map(m => ({
-                    role: m.role,
-                    content: m.content
-                }));
                 fetch("/api/suggest", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        messages: chatMessages,
-                        lastResponse: accumulated,
+                        question: userMessage,
                     }),
                 })
                     .then(res => res.json())
                     .then(data => {
-                        if (data.success && data.questions?.length > 0) {
-                            setSuggestedQuestions(data.questions);
+                        if (data.suggestions?.length > 0) {
+                            setSuggestedQuestions(data.suggestions);
                         }
                     })
                     .catch(() => {}); // 静默失败
