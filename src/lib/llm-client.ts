@@ -1,6 +1,7 @@
 /**
  * 通用 LLM 客户端 - 支持外部部署
  * 使用 OpenAI 兼容的 API 格式
+ * Node.js 18+ 的 fetch 已内置连接池（基于 undici），自动复用 TCP 连接
  */
 
 export interface LLMConfig {
@@ -23,6 +24,15 @@ function getConfig(): LLMConfig {
   };
 }
 
+// 公共请求头（复用对象，减少内存分配）
+function getHeaders(config: LLMConfig) {
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${config.apiKey}`,
+    "Connection": "keep-alive",
+  };
+}
+
 /**
  * 流式调用 LLM
  */
@@ -38,18 +48,15 @@ export async function* streamChat(
 
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
+    headers: getHeaders(config),
     body: JSON.stringify({
       model: config.model,
       messages,
       stream: true,
       temperature: options.temperature ?? 0.7,
-      max_tokens: options.maxTokens ?? 1000,  // 减少 max_tokens 以提高响应速度
+      max_tokens: options.maxTokens ?? 1000,
     }),
-    signal: options.signal,  // 支持取消请求
+    signal: options.signal,
   });
 
   if (!response.ok) {
@@ -103,7 +110,7 @@ export async function chat(
   messages: ChatMessage[],
   options: { temperature?: number; maxTokens?: number } = {}
 ): Promise<string> {
-  const config = DEFAULT_CONFIG;
+  const config = getConfig();
 
   if (!config.apiKey) {
     throw new Error("LLM_API_KEY 环境变量未设置");
@@ -111,10 +118,7 @@ export async function chat(
 
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
+    headers: getHeaders(config),
     body: JSON.stringify({
       model: config.model,
       messages,
@@ -131,4 +135,35 @@ export async function chat(
 
   const data = await response.json();
   return data.choices?.[0]?.message?.content || "";
+}
+
+/**
+ * 测试 LLM 连接
+ */
+export async function testConnection(): Promise<{ success: boolean; model?: string; error?: string }> {
+  try {
+    const config = getConfig();
+    if (!config.apiKey) {
+      return { success: false, error: "API Key 未设置" };
+    }
+
+    const response = await fetch(`${config.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: getHeaders(config),
+      body: JSON.stringify({
+        model: config.model,
+        messages: [{ role: "user", content: "hi" }],
+        max_tokens: 5,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      return { success: false, error: `API 错误: ${response.status} - ${error}` };
+    }
+
+    return { success: true, model: config.model };
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
 }
