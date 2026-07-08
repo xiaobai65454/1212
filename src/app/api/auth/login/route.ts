@@ -4,8 +4,8 @@ import { NextRequest, NextResponse } from 'next/server';
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'xiaobaibai2024';
 
-// 简单的 session token（生产环境建议使用 JWT）
-const SESSION_TOKEN = 'xbb_session_' + Date.now().toString(36);
+// 固定的 session token（生产环境建议使用 JWT 或数据库存储）
+const SESSION_TOKEN = process.env.SESSION_SECRET || 'xbb_fixed_session_token_2024';
 
 export async function POST(request: NextRequest) {
   try {
