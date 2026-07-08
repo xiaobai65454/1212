@@ -1,99 +1,111 @@
 #!/bin/bash
-
-# 小白白智能体 - 一键部署脚本
-# 使用方法: chmod +x deploy.sh && ./deploy.sh
+# 小白白一键部署脚本
+# 使用方法: 在服务器上执行 bash deploy.sh
 
 set -e
 
-echo "=== 开始部署小白白智能体 ==="
+echo "=== 小白白一键部署 ==="
 
-# 检查 Node.js
+# 配置
+PROJECT_DIR="/opt/xiaobaibai"
+REPO_URL="https://github.com/xiaobai65454/1212.git"
+
+# 1. 检查并安装依赖
+echo "[1/7] 检查依赖..."
 if ! command -v node &> /dev/null; then
-    echo "[ERROR] 未检测到 Node.js，请先安装 Node.js 20+"
-    echo "  安装命令: curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs"
-    exit 1
+    echo "安装 Node.js..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    apt-get install -y nodejs
 fi
 
-NODE_VERSION=$(node -v | cut -d'.' -f1 | sed 's/v//')
-echo "[OK] Node.js 版本: $(node -v)"
-
-if [ "$NODE_VERSION" -lt 18 ]; then
-    echo "[ERROR] Node.js 版本过低，需要 18+ (当前: $NODE_VERSION)"
-    exit 1
-fi
-
-# 检查 pnpm
 if ! command -v pnpm &> /dev/null; then
-    echo "[INFO] 正在安装 pnpm..."
+    echo "安装 pnpm..."
     npm install -g pnpm
 fi
 
-# 检查 .env.local
-if [ ! -f .env.local ]; then
-    echo "[WARN] .env.local 文件不存在，从模板创建..."
-    if [ -f .env.example ]; then
-        cp .env.example .env.local
-        echo "[WARN] 请编辑 .env.local 文件，填入必要的配置信息"
-    else
-        echo "[ERROR] .env.example 模板也不存在，请手动创建 .env.local"
-        exit 1
-    fi
+# 安装 antiword（用于解析 .doc 文件）
+if ! command -v antiword &> /dev/null; then
+    echo "安装 antiword..."
+    apt-get update && apt-get install -y antiword
 fi
 
-# 安装依赖
-echo "[INFO] 安装依赖..."
-pnpm install --frozen-lockfile
+# 2. 克隆或更新代码
+echo "[2/7] 更新代码..."
+if [ -d "$PROJECT_DIR/.git" ]; then
+    cd "$PROJECT_DIR"
+    git pull origin main
+else
+    mkdir -p "$PROJECT_DIR"
+    cd "$PROJECT_DIR"
+    git clone "$REPO_URL" .
+fi
 
-# 构建
-echo "[INFO] 构建生产版本..."
+# 3. 安装依赖
+echo "[3/7] 安装依赖..."
+pnpm install
+
+# 4. 配置环境变量
+echo "[4/7] 配置环境变量..."
+if [ ! -f ".env.local" ]; then
+    cat > .env.local << 'EOF'
+# LLM 配置
+LLM_PROVIDER=doubao
+DOUBAO_API_KEY=ark-352bdace-f325-43fc-a37e-2255df5943fc-ce425
+DOUBAO_MODEL=doubao-1-5-lite-32k-250115
+
+# 知识库配置
+KNOWLEDGE_BASE_PATH=./data/knowledge
+
+# 管理后台登录
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=xiaobaibai2024
+
+# Session 密钥
+SESSION_SECRET=xbb_fixed_session_token_2024
+EOF
+    echo "已创建 .env.local 配置文件"
+else
+    echo ".env.local 已存在，跳过"
+fi
+
+# 5. 构建项目
+echo "[5/7] 构建项目..."
 pnpm build
 
-# 创建数据目录
-echo "[INFO] 创建知识库数据目录..."
+# 6. 创建数据目录
+echo "[6/7] 创建数据目录..."
 mkdir -p data/knowledge
+chmod 755 data/knowledge
 
-# 检查 pm2
+# 7. 初始化知识库
+echo "[7/7] 初始化知识库..."
+# 启动服务进行初始化
+PORT=5000 node .next/standalone/server.js &
+SERVER_PID=$!
+sleep 5
+
+# 调用初始化接口
+curl -s -X POST http://localhost:5000/api/knowledge/init || true
+sleep 2
+
+# 停止临时服务
+kill $SERVER_PID 2>/dev/null || true
+
+# 8. 使用 PM2 启动
+echo "启动服务..."
 if ! command -v pm2 &> /dev/null; then
-    echo "[INFO] 正在安装 pm2..."
     npm install -g pm2
 fi
 
-# 停止旧服务（如果存在）
 pm2 delete xiaobaibai 2>/dev/null || true
-
-# 启动服务
-echo "[INFO] 启动服务..."
-pm2 start "pnpm start" --name xiaobaibai
-
-# 等待服务启动
-sleep 3
-
-# 初始化知识库
-echo "[INFO] 初始化知识库..."
-curl -s -X POST http://localhost:3000/api/knowledge/init || echo "[WARN] 知识库初始化请求失败，服务可能还在启动中"
-
-# 健康检查
-echo "[INFO] 健康检查..."
-HEALTH=$(curl -s http://localhost:3000/api/health 2>/dev/null || echo "failed")
-if echo "$HEALTH" | grep -q '"success":true'; then
-    echo "[OK] 服务运行正常"
-else
-    echo "[WARN] 健康检查未通过，请检查日志: pm2 logs xiaobaibai"
-fi
-
-# 设置开机自启
+PORT=5000 pm2 start .next/standalone/server.js --name xiaobaibai
 pm2 save
-pm2 startup 2>/dev/null || true
 
 echo ""
 echo "=== 部署完成 ==="
-echo "  访问地址: http://localhost:3000"
-echo "  诊断接口: http://localhost:3000/api/health"
-echo "  查看日志: pm2 logs xiaobaibai"
+echo "服务地址: http://$(curl -s ifconfig.me):5000"
+echo "管理后台: http://$(curl -s ifconfig.me):5000/login"
+echo "登录账号: admin / xiaobaibai2024"
 echo ""
-echo "  如果使用 Nginx 反向代理，请注意："
-echo "  1. 复制 nginx.conf 到 /etc/nginx/sites-available/"
-echo "  2. 修改 server_name 为你的域名"
-echo "  3. 执行: ln -s /etc/nginx/sites-available/nginx.conf /etc/nginx/sites-enabled/"
-echo "  4. 执行: nginx -t && nginx -s reload"
-echo ""
+echo "查看日志: pm2 logs xiaobaibai"
+echo "重启服务: pm2 restart xiaobaibai"
