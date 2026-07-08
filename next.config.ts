@@ -1,10 +1,9 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  // outputFileTracingRoot: path.resolve(__dirname, '../../'),  // Uncomment and add 'import path from "path"' if needed
-  /* config options here */
   output: 'standalone',
-  allowedDevOrigins: ['*.dev.coze.site'],
+  // 允许的开发域名（仅开发环境生效）
+  allowedDevOrigins: ['*.dev.coze.site', 'xiaobai.beer', 'localhost'],
   images: {
     remotePatterns: [
       {
@@ -13,6 +12,11 @@ const nextConfig: NextConfig = {
         pathname: '/**',
       },
     ],
+  },
+  // 生产环境禁用遥测
+  experimental: {
+    // 禁用 webpack 的 HMR 重连
+    webpackBuildWorker: false,
   },
 };
 
