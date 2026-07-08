@@ -44,14 +44,14 @@ export function ChatInput({
   return (
     <div className="border-t border-gray-100 bg-white/80 backdrop-blur-sm px-4 py-3">
       <div className="max-w-3xl mx-auto space-y-3">
-        {/* Quick Questions */}
+        {/* Quick Questions - Horizontal Scroll */}
         {quickQuestions.length > 0 && (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
             {quickQuestions.map((q) => (
               <button
                 key={q}
                 onClick={() => onSend(q)}
-                className="text-xs px-3 py-1.5 rounded-full bg-[#F5F0EB] text-[#4B5563] hover:bg-[#FF6B4A]/10 hover:text-[#FF6B4A] transition-colors duration-200"
+                className="text-xs px-3 py-1.5 rounded-full bg-[#F5F0EB] text-[#4B5563] hover:bg-[#FF6B4A]/10 hover:text-[#FF6B4A] transition-colors duration-200 whitespace-nowrap flex-shrink-0 border border-gray-100 hover:border-[#FF6B4A]/30"
               >
                 {q}
               </button>
