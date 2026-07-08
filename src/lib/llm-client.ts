@@ -16,13 +16,16 @@ export interface ChatMessage {
 }
 
 // 获取配置（运行时读取环境变量）
-function getConfig(): LLMConfig {
+function getConfig(modelOverride?: string): LLMConfig {
   return {
     apiKey: process.env.LLM_API_KEY || process.env.DOUBAO_API_KEY || "",
     baseUrl: process.env.LLM_BASE_URL || process.env.DOUBAO_BASE_URL || "https://ark.cn-beijing.volces.com/api/v3",
-    model: process.env.LLM_MODEL || process.env.DOUBAO_MODEL || "doubao-1-5-lite-32k-250115",
+    model: modelOverride || process.env.LLM_MODEL || process.env.DOUBAO_MODEL || "doubao-1-5-lite-32k-250115",
   };
 }
+
+// 文案生成专用的高质量模型
+const COPYWRITING_MODEL = "doubao-seed-2-0-lite-260215";
 
 // 公共请求头（复用对象，减少内存分配）
 function getHeaders(config: LLMConfig) {
@@ -38,9 +41,9 @@ function getHeaders(config: LLMConfig) {
  */
 export async function* streamChat(
   messages: ChatMessage[],
-  options: { temperature?: number; maxTokens?: number; signal?: AbortSignal } = {}
+  options: { temperature?: number; maxTokens?: number; signal?: AbortSignal; model?: string } = {}
 ): AsyncGenerator<string> {
-  const config = getConfig();
+  const config = getConfig(options.model);
 
   if (!config.apiKey) {
     throw new Error("LLM_API_KEY 或 DOUBAO_API_KEY 环境变量未设置");
@@ -101,6 +104,52 @@ export async function* streamChat(
   } finally {
     reader.releaseLock();
   }
+}
+
+/**
+ * 使用高质量模型生成文案
+ */
+export async function* streamCopywritingChat(
+  messages: ChatMessage[],
+  options: { temperature?: number; maxTokens?: number; signal?: AbortSignal } = {}
+): AsyncGenerator<string> {
+  yield* streamChat(messages, { ...options, model: COPYWRITING_MODEL });
+}
+
+/**
+ * 检测是否为文案生成请求
+ */
+export function isCopywritingRequest(message: string): boolean {
+  const msg = message.toLowerCase();
+  
+  // 文案生成关键词
+  const copywritingKeywords = [
+    "文案", "写一篇", "帮我写", "生成文案", "写个文案", "写一段",
+    "小红书文案", "抖音文案", "笔记文案", "推广文案", "营销文案",
+    "标题", "爆款标题", "封面文案", "引流文案", "种草文案",
+    "写个笔记", "帮我编", "创作", "内容创作",
+  ];
+  
+  // 检查是否包含文案相关关键词
+  const hasCopywritingKeyword = copywritingKeywords.some(kw => msg.includes(kw));
+  
+  // 检查是否是要求生成内容的句式
+  const contentPatterns = [
+    /帮我.*写/,
+    /生成.*内容/,
+    /写.*文案/,
+    /来.*一[篇段个]/,
+    /创作/,
+    /编.*一[个段篇]/,
+  ];
+  
+  const hasContentPattern = contentPatterns.some(p => p.test(msg));
+  
+  // 同时包含平台名和内容创作意图
+  const platforms = ["小红书", "抖音", "快手", "微博"];
+  const hasPlatform = platforms.some(p => msg.includes(p));
+  
+  return hasCopywritingKeyword || (hasPlatform && hasContentPattern) || hasContentPattern;
 }
 
 /**

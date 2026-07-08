@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
-import { streamChat, type ChatMessage } from "@/lib/llm-client";
+import { streamChat, streamCopywritingChat, isCopywritingRequest, type ChatMessage } from "@/lib/llm-client";
 import { search as searchKnowledge } from "@/lib/knowledge-client";
 import { searchHistory } from "@/lib/response-history";
+import { SearchClient, Config } from "coze-coding-dev-sdk";
 
 // 知识库名称映射（ID -> 中文名）
 const KNOWLEDGE_BASE_NAMES: Record<string, string> = {
@@ -131,6 +132,84 @@ async function gatherKnowledgeContext(
   return { context: "", sourcesUsed: [] };
 }
 
+// 联网搜索热门内容（仅用于文案生成）
+async function searchTrendingContent(query: string): Promise<string> {
+  try {
+    const config = new Config();
+    const client = new SearchClient(config);
+    
+    // 搜索小红书/抖音相关的热门内容
+    const searchQuery = `小红书 ${query} 热门笔记 爆款`;
+    const response = await client.webSearch(searchQuery, 5, true);
+    
+    if (response.web_items && response.web_items.length > 0) {
+      const contents = response.web_items.map(item => {
+        return `【${item.title}】\n${item.snippet}`;
+      }).join("\n\n");
+      
+      // 如果有 AI 总结，也加上
+      const summary = response.summary ? `\n\n【热门趋势总结】\n${response.summary}` : "";
+      
+      return contents + summary;
+    }
+  } catch (error) {
+    console.error("[WebSearch] 搜索失败:", error);
+  }
+  
+  return "";
+}
+
+// 构建文案生成专用的 System Prompt
+function buildCopywritingSystemPrompt(webContext: string, knowledgeContext: string): string {
+  const basePrompt = `你是"小白白"，一位顶级的小红书/抖音文案创作大师，专精校园生活和新生引流内容。
+
+## 你的文案能力
+你是全网最会写学长学姐人设文案的创作者，你写的每一篇笔记都能：
+- 精准吸引大一新生关注
+- 自然建立信任感
+- 合规引流到微信（不违规）
+
+## 文案创作原则
+1. **人设一致**：始终是学长/学姐分享校园生活，绝不暴露营销目的
+2. **真实感强**：用第一人称，加入个人经历和感受，像真人分享
+3. **情绪共鸣**：切中新生的焦虑、期待、好奇等情绪
+4. **价值输出**：提供实用信息，让读者觉得"关注有用"
+5. **合规引流**：用表情包/贴纸/私信引导，绝不直接放联系方式
+
+## 文案格式要求
+- 标题：要有数字、痛点、好奇心缺口，让人忍不住点
+- 正文：开头抛痛点/共鸣 → 中间给干货/故事 → 结尾引互动
+- 标签：5-10个相关标签，包含学校名、专业名、新生相关
+- 表情包提示：在合适位置标注 [表情包: xxx] 用于引流
+
+## 文案风格
+- 口语化、接地气，像朋友聊天
+- 适当使用 emoji 增加亲和力
+- 段落短小，易于阅读
+- 多用"姐妹们""宝子们""学弟学妹"等称呼
+
+## 禁止内容
+- 不能出现"校园卡""电话卡""办卡"等营销词汇
+- 不能出现微信号、二维码、外链
+- 不能有虚假承诺或夸大宣传`;
+
+  let contextParts: string[] = [];
+  
+  if (webContext) {
+    contextParts.push(`## 网络热门内容参考（学习爆款元素）\n\n${webContext}`);
+  }
+  
+  if (knowledgeContext) {
+    contextParts.push(`## 团队知识库内容（结合使用）\n\n${knowledgeContext}`);
+  }
+  
+  if (contextParts.length > 0) {
+    return basePrompt + "\n\n" + contextParts.join("\n\n") + "\n\n---\n请参考以上热门内容和知识库，创作一篇高质量的文案。要求：标题吸引人、内容有干货、风格真实、合规引流。";
+  }
+  
+  return basePrompt;
+}
+
 // 构建 System Prompt（精简版，减少 token 消耗）
 function buildSystemPrompt(knowledgeContext: string): string {
   const basePrompt = `你是"小白白"，一位资深的流量运营导师和校园卡销售大神。
@@ -249,14 +328,19 @@ export async function POST(request: NextRequest) {
     // 判断问题是否在主题范围内
     const onTopic = isOnTopic(userMessage);
 
-    // 1. 仅从知识库检索内容（不使用网络搜索）
+    // 检测是否为文案生成请求
+    const isCopywriting = isCopywritingRequest(userMessage);
+    console.log(`[Chat] 文案检测: ${isCopywriting ? "是文案请求" : "普通问答"}`);
+
+    // 1. 从知识库检索内容
     const { context: knowledgeContext, sourcesUsed } = await gatherKnowledgeContext(
       userMessage,
       knowledgeBases,
     );
 
     // 如果问题不在主题范围内，且知识库没有相关内容，直接拒绝回答
-    if (!onTopic && !knowledgeContext) {
+    // 文案请求始终允许（因为需要联网搜索）
+    if (!onTopic && !knowledgeContext && !isCopywriting) {
       const rejectResponse = "不好意思呀，这个问题我不太清楚呢。我是小白白，主要负责校园卡业务、学长学姐账号运营、销售转化这些方面。如果是关于这些方面的问题，我很乐意帮你解答～";
       
       const encoder = new TextEncoder();
@@ -281,21 +365,43 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 2. 构建 System Prompt（根据是否有知识库内容使用不同策略）
-    const systemPrompt = buildSystemPrompt(knowledgeContext);
-
-    // 3. 构建消息列表
-    const chatMessages: ChatMessage[] = [
-      { role: "system", content: systemPrompt },
-      ...messages.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      })),
-    ];
-
-    // 4. 调用 LLM 流式生成
-    console.log(`[Chat] 调用 LLM, 消息数: ${chatMessages.length}, 知识库上下文长度: ${knowledgeContext.length}`);
-    const llmStream = streamChat(chatMessages);
+    // 2. 根据是否为文案请求，使用不同的处理逻辑
+    let systemPrompt: string;
+    let llmStream: AsyncGenerator<string>;
+    
+    if (isCopywriting) {
+      // 文案生成：联网搜索 + 高质量模型
+      console.log(`[Chat] 文案模式：联网搜索热门内容...`);
+      const webContext = await searchTrendingContent(userMessage);
+      console.log(`[Chat] 联网搜索完成，内容长度: ${webContext.length}`);
+      
+      systemPrompt = buildCopywritingSystemPrompt(webContext, knowledgeContext);
+      
+      const chatMessages: ChatMessage[] = [
+        { role: "system", content: systemPrompt },
+        ...messages.map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        })),
+      ];
+      
+      console.log(`[Chat] 使用高质量模型生成文案`);
+      llmStream = streamCopywritingChat(chatMessages, { temperature: 0.8, maxTokens: 2000 });
+    } else {
+      // 普通问答：使用知识库 + 快速模型
+      systemPrompt = buildSystemPrompt(knowledgeContext);
+      
+      const chatMessages: ChatMessage[] = [
+        { role: "system", content: systemPrompt },
+        ...messages.map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        })),
+      ];
+      
+      console.log(`[Chat] 普通模式：调用 LLM, 消息数: ${chatMessages.length}, 知识库上下文长度: ${knowledgeContext.length}`);
+      llmStream = streamChat(chatMessages);
+    }
 
     // 5. 转换流格式
     const encoder = new TextEncoder();
