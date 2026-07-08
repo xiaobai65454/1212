@@ -102,7 +102,7 @@ export async function chat(
   messages: ChatMessage[],
   options: { temperature?: number; maxTokens?: number } = {}
 ): Promise<string> {
-  const config = DEFAULT_CONFIG;
+  const config = getConfig();
 
   if (!config.apiKey) {
     throw new Error("LLM_API_KEY 环境变量未设置");
