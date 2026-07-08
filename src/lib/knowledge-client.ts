@@ -16,6 +16,8 @@ export interface KnowledgeDoc {
   title: string;
   content: string;
   knowledgeBase: string;
+  tags?: string[];
+  source?: string;
   createdAt: string;
 }
 
@@ -157,11 +159,11 @@ export function invalidateCache() {
 }
 
 /**
- * 添加文档到知识库
+ * 添加文档到知识库（支持标签）
  */
 export async function addDocuments(
   knowledgeBase: string,
-  docs: Array<{ title: string; content: string }>
+  docs: Array<{ title: string; content: string; tags?: string[]; source?: string }>
 ): Promise<string[]> {
   const existingDocs = readKBDocs(knowledgeBase);
   const newDocIds: string[] = [];
@@ -173,6 +175,8 @@ export async function addDocuments(
       title: doc.title,
       content: doc.content,
       knowledgeBase,
+      tags: doc.tags || [],
+      source: doc.source || "",
       createdAt: new Date().toISOString(),
     });
     newDocIds.push(id);

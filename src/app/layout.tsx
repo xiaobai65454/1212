@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,22 +14,21 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <head>
+      <body className="antialiased">
         {/* 阻止 HMR WebSocket 重连导致页面刷新 */}
-        <script
+        <Script
+          id="disable-hmr-websocket"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: `
               (function() {
                 if (typeof window !== 'undefined') {
-                  // 拦截 WebSocket 连接，阻止 HMR 重连
                   var OriginalWebSocket = window.WebSocket;
                   window.WebSocket = function(url, protocols) {
-                    // 如果是 HMR WebSocket，不建立连接
                     if (url && url.indexOf('webpack-hmr') !== -1) {
                       console.log('[小白白] 已禁用 HMR WebSocket 连接');
-                      // 返回一个假的 WebSocket 对象
                       var fakeWs = {
-                        readyState: 3, // CLOSED
+                        readyState: 3,
                         send: function() {},
                         close: function() {},
                         addEventListener: function() {},
@@ -48,8 +48,8 @@ export default function RootLayout({
             `,
           }}
         />
-      </head>
-      <body className="antialiased">{children}</body>
+        {children}
+      </body>
     </html>
   );
 }

@@ -44,17 +44,6 @@
     "createdAt": "2026-07-08T07:28:06.018Z"
   },
   {
-    "title": "校园卡资费套餐详情",
-    "knowledgeBase": "business_basics",
-    "type": "text",
-    "preview": "# 校园卡资费套餐详情\n\n# 校园卡资费套餐详情\n\n## 基础套餐\n- 月租：39元\n- 流量：160G全国通用流量\n- 通话：100分钟国内通话\n- 短信：100条国内短信\n\n## 办理条件\n- 仅限在校学生办理\n- 需携带学生证和身份证\n- 办理地点：学校营业厅或校园卡服务中心\n\n## 优惠活动\n- 新生首月免费体验\n- 充值50元送20元话费\n- 推荐同学办理可获赠流量包\n\n## 常见问题\n",
-    "docIds": [
-      "doc_1783495069655_nmm2dr"
-    ],
-    "id": "doc_1783495069658_cof3yo",
-    "createdAt": "2026-07-08T07:17:49.658Z"
-  },
-  {
     "title": "校园卡月租 39 160g全国流量 100分钟通话 100条短信",
     "knowledgeBase": "business_basics",
     "type": "text",
@@ -97,49 +86,5 @@
     ],
     "id": "doc_1783447777578_8kuayn",
     "createdAt": "2026-07-07T18:09:37.579Z"
-  },
-  {
-    "title": "校园卡资费",
-    "knowledgeBase": "business_basics",
-    "type": "text",
-    "preview": "校园卡月租 39 160g全国流量 100分钟通话 100条短信",
-    "docIds": [
-      "7659816570876772403"
-    ],
-    "id": "doc_1783443576389_d7q7bc",
-    "createdAt": "2026-07-07T16:59:36.389Z"
-  },
-  {
-    "title": "校园卡资费",
-    "knowledgeBase": "business_basics",
-    "type": "text",
-    "preview": "校园卡月租 39  160g全国流量 100分钟通话 100条短信",
-    "docIds": [
-      "7659814651722629154"
-    ],
-    "id": "doc_1783443306886_icihsb",
-    "createdAt": "2026-07-07T16:55:06.886Z"
-  },
-  {
-    "title": "未命名文档",
-    "knowledgeBase": "business_basics",
-    "type": "text",
-    "preview": "校园卡套餐 39 月租 100g全国流量 100分钟通话",
-    "docIds": [
-      "7659822106833715246"
-    ],
-    "id": "doc_1783443242972_lsyn81",
-    "createdAt": "2026-07-07T16:54:02.972Z"
-  },
-  {
-    "title": "测试文档",
-    "knowledgeBase": "business_basics",
-    "type": "text",
-    "preview": "## 产品功能\n1. 客户管理\n2. 内容工具",
-    "docIds": [
-      "7659811667311624201"
-    ],
-    "id": "doc_1783438923008_jshd9d",
-    "createdAt": "2026-07-07T15:42:03.008Z"
   }
 ]
