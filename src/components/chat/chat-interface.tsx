@@ -93,6 +93,7 @@ export function ChatInterface() {
             setMessages(prev => prev.map(m => m.id === assistantMessage.id ? { ...m, thinkingTime: thinkingSeconds } : m));
         }, 1000);
 
+        let accumulated = "";
         try {
             const chatMessages = [...messages, userMessage].map(m => ({
                 role: m.role,
@@ -123,7 +124,7 @@ export function ChatInterface() {
                 throw new Error("No reader available");
 
             const decoder = new TextDecoder();
-            let accumulated = "";
+            accumulated = "";
             let firstChunkReceived = false;
 
             while (true) {
