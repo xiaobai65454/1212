@@ -118,7 +118,7 @@ export default function KnowledgePage() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const res = await fetch('/api/auth/login');
+        const res = await fetch('/api/auth/login', { credentials: 'include' });
         const data = await res.json();
         if (!data.loggedIn) {
           router.push('/login');

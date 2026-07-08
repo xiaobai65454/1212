@@ -26,7 +26,7 @@ export default function LoginPage() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const res = await fetch('/api/auth/login');
+        const res = await fetch('/api/auth/login', { credentials: 'include' });
         const data = await res.json();
         if (data.loggedIn) {
           router.push('/knowledge');
@@ -50,6 +50,7 @@ export default function LoginPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
+        credentials: 'include',
       });
 
       const data = await res.json();
