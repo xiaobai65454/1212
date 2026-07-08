@@ -26,6 +26,7 @@ export interface SearchResult {
   score: number;
   docId: string;
   title: string;
+  createdAt?: string;
 }
 
 // ========== 内存缓存 ==========
@@ -231,6 +232,7 @@ export async function search(
         score,
         docId: doc.id,
         title: doc.title,
+        createdAt: doc.createdAt,
       });
     }
   }

@@ -156,8 +156,34 @@ async function gatherKnowledgeContext(
 }
 
 // 联网搜索热门内容（仅用于文案生成，带超时保护）
-// 搜索结果会保存到知识库，以便后续复用
+// 方案④：优先查缓存，命中则跳过联网；方案③：降低超时+减少结果数
 async function searchTrendingContent(query: string): Promise<string> {
+  // 方案④：先查联网搜索缓存（24小时内有效）
+  try {
+    const cachedResults = await searchKnowledge(query, ["web_search_cache"], 1);
+    if (cachedResults && cachedResults.length > 0) {
+      const cached = cachedResults[0];
+      // 检查缓存是否在 24 小时内
+      if (cached.createdAt) {
+        const cacheAge = Date.now() - new Date(cached.createdAt).getTime();
+        const CACHE_TTL = 24 * 60 * 60 * 1000; // 24小时
+        if (cacheAge < CACHE_TTL) {
+          console.log(`[WebSearch] 命中缓存（${Math.round(cacheAge / 60000)}分钟前），跳过联网搜索`);
+          return cached.content;
+        }
+        console.log(`[WebSearch] 缓存已过期（${Math.round(cacheAge / 3600000)}小时前），重新联网搜索`);
+      } else {
+        // 没有时间戳，直接使用缓存
+        console.log(`[WebSearch] 命中缓存（无时间戳），跳过联网搜索`);
+        return cached.content;
+      }
+    }
+  } catch (cacheErr) {
+    // 缓存知识库可能不存在，忽略错误
+    console.log("[WebSearch] 缓存知识库未找到，走联网搜索");
+  }
+
+  // 缓存未命中或已过期，走联网搜索
   try {
     const config = new Config();
     const client = new SearchClient(config);
@@ -165,10 +191,10 @@ async function searchTrendingContent(query: string): Promise<string> {
     // 搜索小红书/抖音相关的热门内容
     const searchQuery = `小红书 ${query} 热门笔记 爆款`;
     
-    // 设置 3 秒超时，避免搜索过慢影响响应速度
-    const searchPromise = client.webSearch(searchQuery, 5, true);
+    // 方案③：超时从 3000ms 降到 1500ms，结果从 5 条减到 3 条，关闭 AI 总结减少耗时
+    const searchPromise = client.webSearch(searchQuery, 3, false);
     const timeoutPromise = new Promise<never>((_, reject) => 
-      setTimeout(() => reject(new Error("搜索超时")), 3000)
+      setTimeout(() => reject(new Error("搜索超时")), 1500)
     );
     
     const response = await Promise.race([searchPromise, timeoutPromise]);
@@ -178,12 +204,9 @@ async function searchTrendingContent(query: string): Promise<string> {
         return `【${item.title}】\n${item.snippet}`;
       }).join("\n\n");
       
-      // 如果有 AI 总结，也加上
-      const summary = response.summary ? `\n\n【热门趋势总结】\n${response.summary}` : "";
+      const fullContent = contents;
       
-      const fullContent = contents + summary;
-      
-      // 异步保存到知识库（不阻塞响应）
+      // 异步保存到知识库（不阻塞响应，供后续缓存复用）
       saveSearchToKnowledge(query, fullContent, response.web_items).catch(err => {
         console.warn("[WebSearch] 保存到知识库失败:", err.message);
       });
@@ -409,22 +432,38 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 判断问题是否在主题范围内
-    const onTopic = isOnTopic(userMessage);
+    // 判断问题是否在主题范围内（用于非文案请求的过滤）
 
     // 检测是否为文案生成请求
     const isCopywriting = isCopywritingRequest(userMessage);
     console.log(`[Chat] 文案检测: ${isCopywriting ? "是文案请求" : "普通问答"}`);
 
-    // 1. 从知识库检索内容
-    const { context: knowledgeContext, sourcesUsed } = await gatherKnowledgeContext(
-      userMessage,
-      knowledgeBases,
-    );
+    // 方案①：根据模式选择不同的检索策略
+    let knowledgeContext = "";
+    let sourcesUsed: string[] = [];
+    let webContext = "";
+
+    if (isCopywriting) {
+      // 文案模式：知识库检索 + 联网搜索并行执行，节省串行等待时间
+      console.log(`[Chat] 文案模式：知识库检索 + 联网搜索并行执行`);
+      const [knowledgeResult, webResult] = await Promise.all([
+        gatherKnowledgeContext(userMessage, knowledgeBases),
+        searchTrendingContent(userMessage),
+      ]);
+      knowledgeContext = knowledgeResult.context;
+      sourcesUsed = knowledgeResult.sourcesUsed;
+      webContext = webResult;
+      console.log(`[Chat] 并行检索完成 - 知识库: ${knowledgeContext.length}字, 联网: ${webContext.length}字`);
+    } else {
+      // 普通问答：只需知识库检索
+      const result = await gatherKnowledgeContext(userMessage, knowledgeBases);
+      knowledgeContext = result.context;
+      sourcesUsed = result.sourcesUsed;
+    }
 
     // 如果问题不在主题范围内，且知识库没有相关内容，直接拒绝回答
     // 文案请求始终允许（因为需要联网搜索）
-    if (!onTopic && !knowledgeContext && !isCopywriting) {
+    if (!isOnTopic(userMessage) && !knowledgeContext && !isCopywriting) {
       const rejectResponse = "不好意思呀，这个问题我不太清楚呢。我是小白白，主要负责校园卡业务、学长学姐账号运营、销售转化这些方面。如果是关于这些方面的问题，我很乐意帮你解答～";
       
       const encoder = new TextEncoder();
@@ -454,10 +493,8 @@ export async function POST(request: NextRequest) {
     let llmStream: AsyncGenerator<string>;
     
     if (isCopywriting) {
-      // 文案生成：联网搜索 + 高质量模型
-      console.log(`[Chat] 文案模式：联网搜索热门内容...`);
-      const webContext = await searchTrendingContent(userMessage);
-      console.log(`[Chat] 联网搜索完成，内容长度: ${webContext.length}`);
+      // 文案生成：使用已并行获取的联网结果 + 知识库结果
+      console.log(`[Chat] 文案模式：联网内容 ${webContext.length}字，知识库内容 ${knowledgeContext.length}字`);
       
       systemPrompt = buildCopywritingSystemPrompt(webContext, knowledgeContext);
       
