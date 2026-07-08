@@ -51,6 +51,7 @@ export function ChatInterface() {
     const [activeKnowledgeBases, setActiveKnowledgeBases] = useState<string[]>(["business_basics", "agency_ops", "sales_conversion"]);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [knowledgeBases] = useState<KnowledgeBase[]>(DEFAULT_KNOWLEDGE_BASES);
+    const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>(QUICK_QUESTIONS);
     const abortControllerRef = useRef<AbortController | null>(null);
     const thinkingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const generateId = () => `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -218,6 +219,27 @@ export function ChatInterface() {
                         answer: accumulated,
                     }),
                 }).catch(() => {}); // 静默失败
+
+                // 获取猜你想问
+                const chatMessages = [...messages, userMessage].map(m => ({
+                    role: m.role,
+                    content: m.content
+                }));
+                fetch("/api/suggest", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        messages: chatMessages,
+                        lastResponse: accumulated,
+                    }),
+                })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success && data.questions?.length > 0) {
+                            setSuggestedQuestions(data.questions);
+                        }
+                    })
+                    .catch(() => {}); // 静默失败
             }
         }
     }, [isStreaming, messages, activeKnowledgeBases]);
@@ -278,7 +300,7 @@ export function ChatInterface() {
                     onSend={sendMessage}
                     onStop={stopStreaming}
                     isStreaming={isStreaming}
-                    quickQuestions={messages.length === 0 ? QUICK_QUESTIONS : []} />
+                    quickQuestions={suggestedQuestions} />
             </div>
         </div>
     );
