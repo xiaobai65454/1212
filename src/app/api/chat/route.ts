@@ -1,14 +1,15 @@
 import { NextRequest } from "next/server";
 import { streamChat, streamCopywritingChat, isCopywritingRequest, type ChatMessage } from "@/lib/llm-client";
-import { search as searchKnowledge } from "@/lib/knowledge-client";
+import { search as searchKnowledge, addDocuments } from "@/lib/knowledge-client";
 import { searchHistory } from "@/lib/response-history";
 import { SearchClient, Config } from "coze-coding-dev-sdk";
 
 // 知识库名称映射（ID -> 中文名）
 const KNOWLEDGE_BASE_NAMES: Record<string, string> = {
-  business_basics: "业务基础知识",
-  agency_ops: "代运营知识",
-  sales_conversion: "销售转化知识",
+  business_basics: "校园卡业务知识",
+  agency_ops: "引流运营知识",
+  sales_conversion: "校园卡销售知识",
+  web_search_cache: "联网搜索缓存",
 };
 
 // 判断问题是否与校园业务相关
@@ -91,26 +92,45 @@ async function gatherKnowledgeContext(
       return { context: "", sourcesUsed: [] };
     }
 
-    // 搜索所有启用的知识库，减少 topK 以提高速度
-    const results = await searchKnowledge(userMessage, tableNames, 5);
+    // 优先搜索联网搜索缓存知识库
+    let allResults: any[] = [];
+    
+    // 先搜索缓存知识库
+    try {
+      const cacheResults = await searchKnowledge(userMessage, ["web_search_cache"], 3);
+      if (cacheResults && cacheResults.length > 0) {
+        const validCacheResults = cacheResults.filter(r => isValidKnowledgeContent(r.content));
+        if (validCacheResults.length > 0) {
+          allResults.push(...validCacheResults);
+          sourcesUsed.push("联网搜索缓存");
+          console.log(`[Knowledge] 从缓存找到 ${validCacheResults.length} 条相关内容`);
+        }
+      }
+    } catch (cacheErr) {
+      // 缓存知识库可能不存在，忽略错误
+      console.log("[Knowledge] 缓存知识库未找到或为空");
+    }
 
-    if (results && results.length > 0) {
-      console.log(`[Knowledge] Raw results: ${results.length} chunks`);
-      results.forEach((r, i) => {
+    // 再搜索常规知识库
+    const regularResults = await searchKnowledge(userMessage, tableNames, 5);
+
+    if (regularResults && regularResults.length > 0) {
+      console.log(`[Knowledge] Raw results: ${regularResults.length} chunks`);
+      regularResults.forEach((r, i) => {
         console.log(`[Knowledge] Chunk ${i}: score=${r.score}, content_len=${r.content.length}, preview="${r.content.substring(0, 50)}..."`);
       });
       
       // 过滤垃圾内容
-      const validResults = results.filter(r => isValidKnowledgeContent(r.content));
+      const validResults = regularResults.filter(r => isValidKnowledgeContent(r.content));
       
       console.log(`[Knowledge] After filtering: ${validResults.length} valid chunks`);
 
-      if (validResults.length === 0) {
+      if (validResults.length === 0 && allResults.length === 0) {
         return { context: "", sourcesUsed: [] };
       }
       
-      // 使用过滤后的内容
-      const allContent = validResults.map((r) => r.content).join("\n\n");
+      // 合并结果（缓存优先）
+      allResults.push(...validResults);
       
       // 标记使用了哪些知识库（使用中文名称便于展示）
       tableNames.forEach(id => {
@@ -119,6 +139,9 @@ async function gatherKnowledgeContext(
           sourcesUsed.push(name);
         }
       });
+
+      // 使用合并后的内容
+      const allContent = allResults.map((r) => r.content).join("\n\n");
 
       return {
         context: allContent,
@@ -133,6 +156,7 @@ async function gatherKnowledgeContext(
 }
 
 // 联网搜索热门内容（仅用于文案生成，带超时保护）
+// 搜索结果会保存到知识库，以便后续复用
 async function searchTrendingContent(query: string): Promise<string> {
   try {
     const config = new Config();
@@ -157,7 +181,14 @@ async function searchTrendingContent(query: string): Promise<string> {
       // 如果有 AI 总结，也加上
       const summary = response.summary ? `\n\n【热门趋势总结】\n${response.summary}` : "";
       
-      return contents + summary;
+      const fullContent = contents + summary;
+      
+      // 异步保存到知识库（不阻塞响应）
+      saveSearchToKnowledge(query, fullContent, response.web_items).catch(err => {
+        console.warn("[WebSearch] 保存到知识库失败:", err.message);
+      });
+      
+      return fullContent;
     }
   } catch (error) {
     // 搜索失败不影响文案生成，只是没有联网参考
@@ -165,6 +196,51 @@ async function searchTrendingContent(query: string): Promise<string> {
   }
   
   return "";
+}
+
+// 将联网搜索结果保存到知识库
+async function saveSearchToKnowledge(query: string, content: string, webItems: any[]) {
+  // 提取标签
+  const tags = extractTags(query);
+  
+  // 简化内容：只保留标题和关键信息
+  const simplifiedContent = webItems.slice(0, 3).map(item => {
+    return `【${item.title}】${item.snippet}`;
+  }).join("\n\n");
+  
+  // 生成标题
+  const title = `联网搜索：${query}`;
+  
+  // 保存到知识库（使用专门的联网搜索知识库）
+  await addDocuments("web_search_cache", [{
+    title,
+    content: simplifiedContent,
+    tags,
+    source: "web_search",
+  }]);
+  
+  console.log(`[WebSearch] 已保存到知识库，标签: ${tags.join(", ")}`);
+}
+
+// 从查询中提取标签
+function extractTags(query: string): string[] {
+  const tags: string[] = [];
+  
+  // 平台标签
+  if (query.includes("小红书")) tags.push("小红书");
+  if (query.includes("抖音")) tags.push("抖音");
+  
+  // 内容类型标签
+  if (query.includes("文案") || query.includes("写")) tags.push("文案");
+  if (query.includes("引流")) tags.push("引流");
+  if (query.includes("校园卡")) tags.push("校园卡");
+  if (query.includes("套餐")) tags.push("套餐");
+  if (query.includes("话术")) tags.push("话术");
+  
+  // 默认标签
+  if (tags.length === 0) tags.push("通用");
+  
+  return tags;
 }
 
 // 构建文案生成专用的 System Prompt
