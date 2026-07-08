@@ -45,7 +45,20 @@ const DEFAULT_KNOWLEDGE_BASES: KnowledgeBase[] = [{
 const QUICK_QUESTIONS = ["小红书新手如何快速起号？", "产品价格体系是怎样的？", "客户说太贵了怎么应对？", "抖音短视频怎么提高完播率？"];
 
 export function ChatInterface() {
-    const [messages, setMessages] = useState<Message[]>([]);
+    // Load messages from localStorage on initial render
+    const [messages, setMessages] = useState<Message[]>(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                const saved = localStorage.getItem('chat_messages');
+                if (saved) {
+                    return JSON.parse(saved);
+                }
+            } catch (e) {
+                console.error('[Chat] Failed to load messages from localStorage:', e);
+            }
+        }
+        return [];
+    });
     const [inputValue, setInputValue] = useState("");
     const [isStreaming, setIsStreaming] = useState(false);
     const [activeKnowledgeBases, setActiveKnowledgeBases] = useState<string[]>(["business_basics", "agency_ops", "sales_conversion"]);
@@ -55,6 +68,17 @@ export function ChatInterface() {
     const abortControllerRef = useRef<AbortController | null>(null);
     const thinkingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const generateId = () => `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+    // Save messages to localStorage whenever they change
+    useEffect(() => {
+        if (typeof window !== 'undefined' && messages.length > 0) {
+            try {
+                localStorage.setItem('chat_messages', JSON.stringify(messages));
+            } catch (e) {
+                console.error('[Chat] Failed to save messages to localStorage:', e);
+            }
+        }
+    }, [messages]);
 
     const toggleKnowledgeBase = useCallback((id: string) => {
         setActiveKnowledgeBases(prev => prev.includes(id) ? prev.filter(k => k !== id) : [...prev, id]);
