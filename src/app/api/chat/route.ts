@@ -132,7 +132,7 @@ async function gatherKnowledgeContext(
   return { context: "", sourcesUsed: [] };
 }
 
-// 联网搜索热门内容（仅用于文案生成）
+// 联网搜索热门内容（仅用于文案生成，带超时保护）
 async function searchTrendingContent(query: string): Promise<string> {
   try {
     const config = new Config();
@@ -140,7 +140,14 @@ async function searchTrendingContent(query: string): Promise<string> {
     
     // 搜索小红书/抖音相关的热门内容
     const searchQuery = `小红书 ${query} 热门笔记 爆款`;
-    const response = await client.webSearch(searchQuery, 5, true);
+    
+    // 设置 3 秒超时，避免搜索过慢影响响应速度
+    const searchPromise = client.webSearch(searchQuery, 5, true);
+    const timeoutPromise = new Promise<never>((_, reject) => 
+      setTimeout(() => reject(new Error("搜索超时")), 3000)
+    );
+    
+    const response = await Promise.race([searchPromise, timeoutPromise]);
     
     if (response.web_items && response.web_items.length > 0) {
       const contents = response.web_items.map(item => {
@@ -153,7 +160,8 @@ async function searchTrendingContent(query: string): Promise<string> {
       return contents + summary;
     }
   } catch (error) {
-    console.error("[WebSearch] 搜索失败:", error);
+    // 搜索失败不影响文案生成，只是没有联网参考
+    console.warn("[WebSearch] 搜索失败或超时，跳过联网:", (error as Error).message);
   }
   
   return "";

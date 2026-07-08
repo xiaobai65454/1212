@@ -122,34 +122,42 @@ export async function* streamCopywritingChat(
 export function isCopywritingRequest(message: string): boolean {
   const msg = message.toLowerCase();
   
-  // 文案生成关键词
-  const copywritingKeywords = [
-    "文案", "写一篇", "帮我写", "生成文案", "写个文案", "写一段",
+  // 强文案意图关键词（直接触发）
+  const strongKeywords = [
+    "文案", "写一篇", "帮我写", "生成文案", "写个文案", 
     "小红书文案", "抖音文案", "笔记文案", "推广文案", "营销文案",
-    "标题", "爆款标题", "封面文案", "引流文案", "种草文案",
-    "写个笔记", "帮我编", "创作", "内容创作",
+    "爆款标题", "封面文案", "引流文案", "种草文案",
+    "写个笔记", "内容创作",
   ];
   
-  // 检查是否包含文案相关关键词
-  const hasCopywritingKeyword = copywritingKeywords.some(kw => msg.includes(kw));
+  // 检查是否包含强文案关键词
+  const hasStrongKeyword = strongKeywords.some(kw => msg.includes(kw));
+  if (hasStrongKeyword) return true;
   
-  // 检查是否是要求生成内容的句式
-  const contentPatterns = [
-    /帮我.*写/,
-    /生成.*内容/,
-    /写.*文案/,
-    /来.*一[篇段个]/,
-    /创作/,
-    /编.*一[个段篇]/,
+  // 弱意图关键词（需要配合其他条件）
+  const weakKeywords = ["标题", "写一段", "帮我编", "创作"];
+  const hasWeakKeyword = weakKeywords.some(kw => msg.includes(kw));
+  
+  // 检查是否是明确要求生成内容的句式
+  const strongPatterns = [
+    /帮我.*写.*(文案|笔记|标题|内容)/,
+    /生成.*(文案|内容)/,
+    /写.*(小红书|抖音).*(文案|笔记)/,
+    /来.*一[篇段].*(文案|笔记)/,
   ];
   
-  const hasContentPattern = contentPatterns.some(p => p.test(msg));
+  const hasStrongPattern = strongPatterns.some(p => p.test(msg));
   
-  // 同时包含平台名和内容创作意图
-  const platforms = ["小红书", "抖音", "快手", "微博"];
+  // 平台 + 明确的创作意图
+  const platforms = ["小红书", "抖音"];
   const hasPlatform = platforms.some(p => msg.includes(p));
+  const contentActions = ["写", "创作", "生成", "编"];
+  const hasAction = contentActions.some(a => msg.includes(a));
   
-  return hasCopywritingKeyword || (hasPlatform && hasContentPattern) || hasContentPattern;
+  // 必须同时满足：平台 + 动作 + (弱关键词 或 其他内容指示词)
+  const hasContentIntent = hasPlatform && hasAction && (hasWeakKeyword || msg.includes("内容") || msg.includes("一篇"));
+  
+  return hasStrongPattern || hasContentIntent;
 }
 
 /**
