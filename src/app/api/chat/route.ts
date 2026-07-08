@@ -307,6 +307,24 @@ export async function POST(request: NextRequest) {
             }
           }
           if (!isClosed) {
+            // Generate suggestions after response is complete
+            let suggestions: string[] = [];
+            try {
+              const suggestResponse = await fetch(`${process.env.COZE_PROJECT_DOMAIN_DEFAULT || 'http://localhost:5000'}/api/suggest`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question: userQuestion, lastResponse: fullResponse.substring(0, 200) }),
+              });
+              if (suggestResponse.ok) {
+                const suggestData = await suggestResponse.json();
+                suggestions = suggestData.suggestions || [];
+              }
+            } catch (e) {
+              console.error('[Chat] Suggest error:', e);
+            }
+            
+            // Send suggestions as a special event
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ suggestions })}\n\n`));
             controller.enqueue(encoder.encode("data: [DONE]\n\n"));
             controller.close();
           }

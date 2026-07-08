@@ -179,6 +179,12 @@ export function ChatInterface() {
                                     content: parsed.error
                                 } : m));
                             }
+                            
+                            // Extract suggestions from response
+                            if (parsed.suggestions && Array.isArray(parsed.suggestions)) {
+                                console.log('[Chat] Received suggestions:', parsed.suggestions);
+                                setSuggestedQuestions(parsed.suggestions);
+                            }
                         } catch {}
                     }
                 }
@@ -219,24 +225,6 @@ export function ChatInterface() {
                         answer: accumulated,
                     }),
                 }).catch(() => {}); // 静默失败
-
-                // 获取猜你想问
-                fetch("/api/suggest", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        question: userMessage,
-                    }),
-                })
-                    .then(res => res.json())
-                    .then(data => {
-                        console.log("Suggest API response:", data);
-                        if (data.suggestions?.length > 0) {
-                            setSuggestedQuestions(data.suggestions);
-                            console.log("Updated suggested questions:", data.suggestions);
-                        }
-                    })
-                    .catch(err => console.error("Suggest API error:", err));
             }
         }
     }, [isStreaming, messages, activeKnowledgeBases]);
