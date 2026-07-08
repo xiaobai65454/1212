@@ -24,25 +24,25 @@ export interface KnowledgeBase {
 
 const DEFAULT_KNOWLEDGE_BASES: KnowledgeBase[] = [{
     id: "business_basics",
-    name: "业务基础知识",
-    description: "产品功能、价格体系、适用场景、竞品对比",
+    name: "校园卡业务知识",
+    description: "校园卡套餐资费、办卡流程、常见问题",
     color: "#4A90D9",
     icon: "book"
 }, {
     id: "agency_ops",
-    name: "代运营知识",
-    description: "小红书/抖音运营方法论、内容创作、引流技巧",
+    name: "引流运营知识",
+    description: "小红书/抖音学长学姐人设打造、引流到微信技巧",
     color: "#FF6B4A",
     icon: "megaphone"
 }, {
     id: "sales_conversion",
-    name: "销售转化知识",
-    description: "销售话术、客户跟进、转化技巧、成交策略",
+    name: "校园卡销售知识",
+    description: "办卡话术、客户跟进、成交转化技巧",
     color: "#4ECDC4",
     icon: "target"
 }];
 
-const QUICK_QUESTIONS = ["小红书新手如何快速起号？", "产品价格体系是怎样的？", "客户说太贵了怎么应对？", "抖音短视频怎么提高完播率？"];
+const QUICK_QUESTIONS = ["校园卡有哪些套餐？", "小红书怎么引流到微信？", "学长学姐人设怎么打造？", "客户嫌贵怎么回复？"];
 
 export function ChatInterface() {
     // Load messages from localStorage on initial render
