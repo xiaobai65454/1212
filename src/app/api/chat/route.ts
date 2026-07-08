@@ -94,10 +94,15 @@ async function gatherKnowledgeContext(
     const results = await searchKnowledge(userMessage, tableNames, 5);
 
     if (results && results.length > 0) {
+      console.log(`[Knowledge] Raw results: ${results.length} chunks`);
+      results.forEach((r, i) => {
+        console.log(`[Knowledge] Chunk ${i}: score=${r.score}, content_len=${r.content.length}, preview="${r.content.substring(0, 50)}..."`);
+      });
+      
       // 过滤垃圾内容
       const validResults = results.filter(r => isValidKnowledgeContent(r.content));
       
-      console.log(`[Knowledge] Found ${results.length} chunks, ${validResults.length} valid after filtering`);
+      console.log(`[Knowledge] After filtering: ${validResults.length} valid chunks`);
 
       if (validResults.length === 0) {
         return { context: "", sourcesUsed: [] };
