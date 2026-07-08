@@ -230,11 +230,13 @@ export function ChatInterface() {
                 })
                     .then(res => res.json())
                     .then(data => {
+                        console.log("Suggest API response:", data);
                         if (data.suggestions?.length > 0) {
                             setSuggestedQuestions(data.suggestions);
+                            console.log("Updated suggested questions:", data.suggestions);
                         }
                     })
-                    .catch(() => {}); // 静默失败
+                    .catch(err => console.error("Suggest API error:", err));
             }
         }
     }, [isStreaming, messages, activeKnowledgeBases]);
