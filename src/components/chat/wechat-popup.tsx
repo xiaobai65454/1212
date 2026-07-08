@@ -118,7 +118,7 @@ export function WechatPopup() {
           </button>
 
           <p className="text-xs text-gray-400 mt-3">
-            添加后可获取一对一咨询和最新优惠信息
+            添加后可获取一对一咨询和专属服务
           </p>
         </div>
       </div>
