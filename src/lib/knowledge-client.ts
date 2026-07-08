@@ -86,20 +86,25 @@ export async function addDocuments(
 }
 
 /**
- * 简单的文本相似度计算（基于关键词匹配）
+ * 简单的文本相似度计算（基于关键词匹配）- 优化版
  */
 function calculateSimilarity(query: string, content: string): number {
+  // 只取查询中长度>=2的词
   const queryWords = query.toLowerCase().split(/[\s,，。！？、]+/).filter(w => w.length > 1);
-  const contentLower = content.toLowerCase();
+  if (queryWords.length === 0) return 0;
   
+  const contentLower = content.toLowerCase();
   let matchCount = 0;
-  for (const word of queryWords) {
-    if (contentLower.includes(word)) {
+  
+  // 提前终止：如果剩余词全部匹配也无法超过阈值，就停止
+  for (let i = 0; i < queryWords.length; i++) {
+    if (contentLower.includes(queryWords[i])) {
       matchCount++;
     }
   }
   
-  return queryWords.length > 0 ? matchCount / queryWords.length : 0;
+  const score = matchCount / queryWords.length;
+  return score > 0.15 ? score : 0;  // 提高阈值，过滤更多无关结果
 }
 
 /**

@@ -28,7 +28,7 @@ function getConfig(): LLMConfig {
  */
 export async function* streamChat(
   messages: ChatMessage[],
-  options: { temperature?: number; maxTokens?: number } = {}
+  options: { temperature?: number; maxTokens?: number; signal?: AbortSignal } = {}
 ): AsyncGenerator<string> {
   const config = getConfig();
 
@@ -47,8 +47,9 @@ export async function* streamChat(
       messages,
       stream: true,
       temperature: options.temperature ?? 0.7,
-      max_tokens: options.maxTokens ?? 2000,
+      max_tokens: options.maxTokens ?? 1000,  // 减少 max_tokens 以提高响应速度
     }),
+    signal: options.signal,  // 支持取消请求
   });
 
   if (!response.ok) {
