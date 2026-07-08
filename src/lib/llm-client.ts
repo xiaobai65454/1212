@@ -19,7 +19,7 @@ function getConfig(): LLMConfig {
   return {
     apiKey: process.env.LLM_API_KEY || process.env.DOUBAO_API_KEY || "",
     baseUrl: process.env.LLM_BASE_URL || process.env.DOUBAO_BASE_URL || "https://ark.cn-beijing.volces.com/api/v3",
-    model: process.env.LLM_MODEL || process.env.DOUBAO_MODEL || "doubao-lite-4k",
+    model: process.env.LLM_MODEL || process.env.DOUBAO_MODEL || "doubao-seed-2-0-lite-260215",
   };
 }
 

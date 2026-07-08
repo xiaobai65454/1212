@@ -52,7 +52,7 @@ export async function GET() {
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: process.env.LLM_MODEL || process.env.DOUBAO_MODEL || "doubao-lite-4k",
+          model: process.env.LLM_MODEL || process.env.DOUBAO_MODEL || "doubao-seed-2-0-lite-260215",
           messages: [{ role: "user", content: "hi" }],
           max_tokens: 5,
         }),
