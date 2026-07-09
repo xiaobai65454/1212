@@ -39,36 +39,22 @@ function isOnTopic(message: string): boolean {
   return onTopicKeywords.some(kw => message.toLowerCase().includes(kw.toLowerCase()));
 }
 
-// 过滤垃圾内容：太短的、代码片段、JSON、URL等
+// 过滤垃圾内容：太短的、代码片段等
 function isValidKnowledgeContent(content: string): boolean {
   // 太短的内容（少于15个字符）
   if (content.trim().length < 15) return false;
   
-  // 包含大量代码特征的内容
+  // 只过滤明显的代码内容，不过滤正常文本
   const codePatterns = [
-    /\{[^}]{50,}\}/,           // 长 JSON 块
-    /https?:\/\/[^\s]+/,       // URL
-    /[a-zA-Z_]+\s*:\s*"/,      // JSON 键值对
-    /function\s*\(/,           // 函数定义
-    /import\s+|export\s+/,     // import/export
-    /<script|<style|<div/,     // HTML 标签
-    /npm:\s*\{/,               // npm 配置
-    /"@tencent/,               // 腾讯 SDK 引用
-    /docs\.qq\.com/,           // QQ文档链接
-    /feedback.*qq\.com/,       // QQ反馈链接
+    /\{[^}]{200,}\}/,          // 超长 JSON 块（放宽到200字符）
+    /function\s*\([^)]*\)\s*\{/, // 函数定义
+    /import\s+.*from\s+['"]/,   // import 语句
+    /export\s+(default\s+)?/,   // export 语句
+    /<script[^>]*>[\s\S]*<\/script>/, // 完整 script 标签
   ];
   
   const codeMatches = codePatterns.filter(p => p.test(content)).length;
   if (codeMatches >= 2) return false;  // 匹配2个以上代码模式则过滤
-  
-  // 中文字符占比太低（可能是代码或乱码）
-  const chineseChars = content.match(/[\u4e00-\u9fa5]/g) || [];
-  const chineseRatio = chineseChars.length / content.length;
-  if (chineseRatio < 0.3 && content.length > 50) return false;
-  
-  // 纯标点或无意义内容
-  const meaningless = ["是的", "吗？", "没有", "不好意思", "好的", "嗯"];
-  if (meaningless.includes(content.trim())) return false;
   
   return true;
 }
