@@ -112,10 +112,6 @@ async function gatherKnowledgeContext(
       
       console.log(`[Knowledge] After filtering: ${validResults.length} valid chunks`);
 
-      if (validResults.length === 0 && allResults.length === 0) {
-        return { context: "", sourcesUsed: [] };
-      }
-      
       // 合并结果（缓存优先）
       allResults.push(...validResults);
       
@@ -126,10 +122,12 @@ async function gatherKnowledgeContext(
           sourcesUsed.push(name);
         }
       });
+    }
 
-      // 使用合并后的内容
+    // 如果有任何结果（缓存或常规），返回内容
+    if (allResults.length > 0) {
       const allContent = allResults.map((r) => r.content).join("\n\n");
-
+      console.log(`[Knowledge] 最终返回 ${allResults.length} 条结果，总字数: ${allContent.length}`);
       return {
         context: allContent,
         sourcesUsed,
