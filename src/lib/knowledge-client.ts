@@ -284,9 +284,12 @@ export async function listKnowledgeBases(): Promise<Array<{ id: string; name: st
   ensureDataDir();
   
   const kbNames: Record<string, string> = {
-    business_basics: "业务基础知识",
-    agency_ops: "代运营知识",
-    sales_conversion: "销售转化知识",
+    business_basics: "校园卡业务知识",
+    agency_ops: "引流运营知识",
+    sales_conversion: "校园卡销售知识",
+    xiaohongshu_copywriting_tips: "小红书爆款文案技巧",
+    web_search_cache: "联网搜索缓存",
+    copywriting_examples: "文案示例库",
   };
 
   const files = fs.readdirSync(DATA_DIR).filter(f => f.endsWith(".json"));
