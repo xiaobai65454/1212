@@ -24,9 +24,6 @@ function getConfig(modelOverride?: string): LLMConfig {
   };
 }
 
-// 文案生成专用的高质量模型
-const COPYWRITING_MODEL = "doubao-seed-2-0-lite-260215";
-
 // 公共请求头（复用对象，减少内存分配）
 function getHeaders(config: LLMConfig) {
   return {
@@ -107,13 +104,13 @@ export async function* streamChat(
 }
 
 /**
- * 使用高质量模型生成文案
+ * 生成文案（统一使用默认模型，通过精简 prompt 控制质量）
  */
 export async function* streamCopywritingChat(
   messages: ChatMessage[],
   options: { temperature?: number; maxTokens?: number; signal?: AbortSignal } = {}
 ): AsyncGenerator<string> {
-  yield* streamChat(messages, { ...options, model: COPYWRITING_MODEL });
+  yield* streamChat(messages, options);
 }
 
 /**

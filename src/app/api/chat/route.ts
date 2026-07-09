@@ -155,15 +155,14 @@ async function gatherKnowledgeContext(
   return { context: "", sourcesUsed: [] };
 }
 
-// 联网搜索热门内容（仅用于文案生成，带超时保护）
-// 方案④：优先查缓存，命中则跳过联网；方案③：降低超时+减少结果数
+// 联网搜索热门内容（仅用于文案生成）
+// 缓存命中直接返回；缓存未命中时不阻塞，后台异步搜索并写入缓存供下次使用
 async function searchTrendingContent(query: string): Promise<string> {
-  // 方案④：先查联网搜索缓存（24小时内有效）
+  // 先查联网搜索缓存（24小时内有效）
   try {
     const cachedResults = await searchKnowledge(query, ["web_search_cache"], 1);
     if (cachedResults && cachedResults.length > 0) {
       const cached = cachedResults[0];
-      // 检查缓存是否在 24 小时内
       if (cached.createdAt) {
         const cacheAge = Date.now() - new Date(cached.createdAt).getTime();
         const CACHE_TTL = 24 * 60 * 60 * 1000; // 24小时
@@ -171,30 +170,35 @@ async function searchTrendingContent(query: string): Promise<string> {
           console.log(`[WebSearch] 命中缓存（${Math.round(cacheAge / 60000)}分钟前），跳过联网搜索`);
           return cached.content;
         }
-        console.log(`[WebSearch] 缓存已过期（${Math.round(cacheAge / 3600000)}小时前），重新联网搜索`);
+        console.log(`[WebSearch] 缓存已过期（${Math.round(cacheAge / 3600000)}小时前），触发后台更新`);
       } else {
-        // 没有时间戳，直接使用缓存
         console.log(`[WebSearch] 命中缓存（无时间戳），跳过联网搜索`);
         return cached.content;
       }
     }
   } catch (cacheErr) {
-    // 缓存知识库可能不存在，忽略错误
-    console.log("[WebSearch] 缓存知识库未找到，走联网搜索");
+    console.log("[WebSearch] 缓存知识库未找到，触发后台搜索");
   }
 
-  // 缓存未命中或已过期，走联网搜索
+  // 缓存未命中或已过期：不阻塞当前请求，后台异步搜索并写缓存
+  console.log("[WebSearch] 缓存未命中，后台异步搜索（不阻塞文案生成）");
+  runBackgroundSearch(query).catch(err => {
+    console.warn("[WebSearch] 后台搜索失败:", (err as Error).message);
+  });
+  
+  return "";
+}
+
+// 后台异步执行联网搜索并写入缓存
+async function runBackgroundSearch(query: string): Promise<void> {
   try {
     const config = new Config();
     const client = new SearchClient(config);
-    
-    // 搜索小红书/抖音相关的热门内容
     const searchQuery = `小红书 ${query} 热门笔记 爆款`;
     
-    // 方案③：超时从 3000ms 降到 1500ms，结果从 5 条减到 3 条，关闭 AI 总结减少耗时
     const searchPromise = client.webSearch(searchQuery, 3, false);
     const timeoutPromise = new Promise<never>((_, reject) => 
-      setTimeout(() => reject(new Error("搜索超时")), 1500)
+      setTimeout(() => reject(new Error("搜索超时")), 3000)
     );
     
     const response = await Promise.race([searchPromise, timeoutPromise]);
@@ -204,21 +208,12 @@ async function searchTrendingContent(query: string): Promise<string> {
         return `【${item.title}】\n${item.snippet}`;
       }).join("\n\n");
       
-      const fullContent = contents;
-      
-      // 异步保存到知识库（不阻塞响应，供后续缓存复用）
-      saveSearchToKnowledge(query, fullContent, response.web_items).catch(err => {
-        console.warn("[WebSearch] 保存到知识库失败:", err.message);
-      });
-      
-      return fullContent;
+      await saveSearchToKnowledge(query, contents, response.web_items);
+      console.log("[WebSearch] 后台搜索完成，已写入缓存");
     }
   } catch (error) {
-    // 搜索失败不影响文案生成，只是没有联网参考
-    console.warn("[WebSearch] 搜索失败或超时，跳过联网:", (error as Error).message);
+    console.warn("[WebSearch] 后台搜索失败:", (error as Error).message);
   }
-  
-  return "";
 }
 
 // 将联网搜索结果保存到知识库
@@ -266,52 +261,30 @@ function extractTags(query: string): string[] {
   return tags;
 }
 
-// 构建文案生成专用的 System Prompt
+// 构建文案生成专用的 System Prompt（精简版，减少 LLM 推理时间）
 function buildCopywritingSystemPrompt(webContext: string, knowledgeContext: string): string {
-  const basePrompt = `你是"小白白"，一位顶级的小红书/抖音文案创作大师，专精校园生活和新生引流内容。
+  const basePrompt = `你是"小白白"，专精小红书/抖音校园生活文案创作。
 
-## 你的文案能力
-你是全网最会写学长学姐人设文案的创作者，你写的每一篇笔记都能：
-- 精准吸引大一新生关注
-- 自然建立信任感
-- 合规引流到微信（不违规）
+## 核心规则
+1. 第一人称学长/学姐视角，口语化+emoji，段落短小，多用"姐妹们""宝子们""学弟学妹"
+2. 标题用数字+痛点+好奇心，正文：共鸣开头→干货故事→互动结尾
+3. 禁止出现：校园卡/电话卡/办卡/微信号/二维码/虚假承诺
 
-## 文案创作原则
-1. **人设一致**：始终是学长/学姐分享校园生活，绝不暴露营销目的
-2. **真实感强**：用第一人称，加入个人经历和感受，像真人分享
-3. **情绪共鸣**：切中新生的焦虑、期待、好奇等情绪
-4. **价值输出**：提供实用信息，让读者觉得"关注有用"
-5. **合规引流**：用表情包/贴纸/私信引导，绝不直接放联系方式
-
-## 文案格式要求
-- 标题：要有数字、痛点、好奇心缺口，让人忍不住点
-- 正文：开头抛痛点/共鸣 → 中间给干货/故事 → 结尾引互动
-- 标签：5-10个相关标签，包含学校名、专业名、新生相关
-- 表情包提示：在合适位置标注 [表情包: xxx] 用于引流
-
-## 文案风格
-- 口语化、接地气，像朋友聊天
-- 适当使用 emoji 增加亲和力
-- 段落短小，易于阅读
-- 多用"姐妹们""宝子们""学弟学妹"等称呼
-
-## 禁止内容
-- 不能出现"校园卡""电话卡""办卡"等营销词汇
-- 不能出现微信号、二维码、外链
-- 不能有虚假承诺或夸大宣传`;
+## 格式
+- 标题 + 正文（200-400字）+ 5-10个标签 + [表情包: xxx]引流标注`;
 
   let contextParts: string[] = [];
   
   if (webContext) {
-    contextParts.push(`## 网络热门内容参考（学习爆款元素）\n\n${webContext}`);
+    contextParts.push(`## 网络热门内容参考\n\n${webContext}`);
   }
   
   if (knowledgeContext) {
-    contextParts.push(`## 团队知识库内容（结合使用）\n\n${knowledgeContext}`);
+    contextParts.push(`## 团队知识库内容\n\n${knowledgeContext}`);
   }
   
   if (contextParts.length > 0) {
-    return basePrompt + "\n\n" + contextParts.join("\n\n") + "\n\n---\n请参考以上热门内容和知识库，创作一篇高质量的文案。要求：标题吸引人、内容有干货、风格真实、合规引流。";
+    return basePrompt + "\n\n" + contextParts.join("\n\n") + "\n\n---\n请参考以上内容，创作一篇高质量文案。";
   }
   
   return basePrompt;
@@ -506,8 +479,8 @@ export async function POST(request: NextRequest) {
         })),
       ];
       
-      console.log(`[Chat] 使用高质量模型生成文案`);
-      llmStream = streamCopywritingChat(chatMessages, { temperature: 0.8, maxTokens: 2000 });
+      console.log(`[Chat] 文案模式：调用 LLM（精简prompt+1200tokens）`);
+      llmStream = streamCopywritingChat(chatMessages, { temperature: 0.8, maxTokens: 1200 });
     } else {
       // 普通问答：使用知识库 + 快速模型
       systemPrompt = buildSystemPrompt(knowledgeContext);
