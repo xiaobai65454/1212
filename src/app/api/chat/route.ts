@@ -649,9 +649,13 @@ export async function POST(request: NextRequest) {
             }
             
             // Send suggestions as a special event
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ suggestions })}\n\n`));
-            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-            controller.close();
+            try {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ suggestions })}\n\n`));
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
+            } catch {
+              // Controller already closed
+            }
           }
         } catch (error) {
           console.error("LLM stream error:", error);
