@@ -369,6 +369,9 @@ function buildCopywritingSystemPrompt(webContext: string, knowledgeContext: stri
 - 要有情绪起伏：开心、吐槽、感慨、惊喜
 - 要有互动感：问读者问题，引发共鸣
 - 要有价值：让读者觉得有用、想收藏
+- **内容要充实**：正文至少300-500字，不要写得太短
+- 多写细节，多写感受，让读者有代入感
+- 可以分多个段落，每段讲一个点，但不要工整对称
 
 # 本次创作设定
 - 切入角度：${randomAngle}
@@ -588,7 +591,7 @@ export async function POST(request: NextRequest) {
       ];
       
       console.log(`[Chat] 文案模式：调用 LLM（完整prompt+2000tokens）`);
-      llmStream = streamCopywritingChat(chatMessages, { temperature: 0.9, maxTokens: 2000 });
+      llmStream = streamCopywritingChat(chatMessages, { temperature: 0.9, maxTokens: 4000 });
     } else {
       // 普通问答：使用知识库 + 快速模型
       systemPrompt = buildSystemPrompt(knowledgeContext, webContext);
