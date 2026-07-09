@@ -104,13 +104,85 @@ export async function* streamChat(
 }
 
 /**
- * 生成文案（统一使用默认模型，通过精简 prompt 控制质量）
+ * 生成文案（使用更强的模型提升文案质量）
  */
 export async function* streamCopywritingChat(
   messages: ChatMessage[],
   options: { temperature?: number; maxTokens?: number; signal?: AbortSignal } = {}
 ): AsyncGenerator<string> {
-  yield* streamChat(messages, options);
+  // 使用专门的文案模型（更强的模型）
+  const copywritingModel = process.env.DOUBAO_COPYWRITING_MODEL || process.env.DOUBAO_MODEL || "doubao-seed-2-0";
+  const apiKey = process.env.DOUBAO_API_KEY;
+  
+  if (!apiKey) {
+    throw new Error("DOUBAO_API_KEY environment variable is required");
+  }
+
+  const baseUrl = "https://ark.cn-beijing.volces.com/api/v3";
+  const url = `${baseUrl}/chat/completions`;
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${apiKey}`,
+  };
+
+  const body = {
+    model: copywritingModel,
+    messages,
+    stream: true,
+    temperature: options.temperature ?? 0.8,
+    max_tokens: options.maxTokens ?? 2000,
+  };
+
+  console.log(`[LLM] 文案生成使用模型: ${copywritingModel}`);
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    signal: options.signal,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`LLM API error ${response.status}: ${errorText}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error("No response body");
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith("data: ")) continue;
+        const data = trimmed.slice(6);
+        if (data === "[DONE]") return;
+
+        try {
+          const parsed = JSON.parse(data);
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content) yield content;
+        } catch {
+          // Skip invalid JSON
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 /**
