@@ -70,9 +70,15 @@ function readKBDocs(knowledgeBase: string): KnowledgeDoc[] {
   try {
     const data = fs.readFileSync(filePath, "utf-8");
     const docs = JSON.parse(data);
+    // 验证数据是否为数组
+    if (!Array.isArray(docs)) {
+      console.warn(`[Knowledge] ${knowledgeBase}.json 不是有效的数组格式`);
+      return [];
+    }
     memoryCache.set(knowledgeBase, { docs, loadedAt: Date.now() });
     return docs;
-  } catch {
+  } catch (err) {
+    console.error(`[Knowledge] 读取 ${knowledgeBase}.json 失败:`, err);
     return [];
   }
 }
@@ -121,7 +127,14 @@ function rebuildInvertedIndex() {
   docIndex.clear();
   
   for (const [, entry] of memoryCache) {
+    // 确保 entry.docs 是可迭代的数组
+    if (!entry.docs || !Array.isArray(entry.docs)) {
+      continue;
+    }
     for (const doc of entry.docs) {
+      if (!doc || !doc.id || !doc.content) {
+        continue;
+      }
       docIndex.set(doc.id, doc);
       const keywords = extractKeywords(doc.content + " " + doc.title);
       for (const keyword of keywords) {
