@@ -77,6 +77,7 @@ function isValidKnowledgeContent(content: string): boolean {
 async function gatherKnowledgeContext(
   userMessage: string,
   knowledgeBases: string[],
+  topK: number = 5,
 ): Promise<{ context: string; sourcesUsed: string[] }> {
   const sourcesUsed: string[] = [];
 
@@ -111,8 +112,8 @@ async function gatherKnowledgeContext(
       console.log("[Knowledge] 缓存知识库未找到或为空");
     }
 
-    // 再搜索常规知识库
-    const regularResults = await searchKnowledge(userMessage, tableNames, 5);
+    // 再搜索常规知识库（使用传入的 topK）
+    const regularResults = await searchKnowledge(userMessage, tableNames, topK);
 
     if (regularResults && regularResults.length > 0) {
       console.log(`[Knowledge] Raw results: ${regularResults.length} chunks`);
@@ -263,18 +264,39 @@ function extractTags(query: string): string[] {
 
 // 构建文案生成专用的 System Prompt（精简版，减少 LLM 推理时间）
 function buildCopywritingSystemPrompt(webContext: string, knowledgeContext: string): string {
+  // 随机选择切入角度，避免千篇一律
+  const angles = [
+    "新生入学焦虑/期待",
+    "宿舍生活小妙招", 
+    "学长学姐的后悔事",
+    "校园隐藏福利",
+    "对比其他学校的优势",
+    "毕业后的回忆",
+    "省钱攻略",
+    "社交/脱单技巧",
+  ];
+  const randomAngle = angles[Math.floor(Math.random() * angles.length)];
+  
   const basePrompt = `你是"小白白"，专精小红书/抖音校园爆款文案。
 
 ## 铁律（违反则文案作废）
 - 绝对禁止：校园卡/电话卡/办卡/微信号/二维码/价格/虚假承诺
 - 不直接推销，只分享校园生活经验，产品自然带出
 
+## 本次创作要求
+- 切入角度：${randomAngle}（必须从这个角度切入，不要换）
+- 每次生成必须独一无二，禁止套用模板
+
 ## 爆款公式
 - 标题：数字+痛点+好奇心（如"3个让室友以为我在凡尔赛的小习惯"）
 - 开头：3秒抓住注意力，用"姐妹们""宝子们"拉近距离
 - 正文：真实故事/经历 → 干货分享 → 互动提问结尾
 - 200-400字，短段落，多用emoji，口语化
-- 结尾：5-10个标签 + [表情包: xxx]引流标注`;
+- 结尾：5-10个标签 + [表情包: xxx]引流标注
+
+## 知识库使用规则
+- 知识库内容仅作事实参考，禁止照搬其中的模板、话术、句式
+- 必须用自己的语言重新创作，像真人学长学姐分享`;
 
   let contextParts: string[] = [];
   
@@ -425,16 +447,27 @@ export async function POST(request: NextRequest) {
     let sourcesUsed: string[] = [];
     let webContext = "";
 
-    // 所有请求都走知识库检索 + 联网搜索并行（联网搜索缓存优先，未命中不阻塞）
-    console.log(`[Chat] ${isCopywriting ? "文案模式" : "普通模式"}：知识库检索 + 联网搜索并行执行`);
-    const [knowledgeResult, webResult] = await Promise.all([
-      gatherKnowledgeContext(userMessage, knowledgeBases),
-      searchTrendingContent(userMessage),
-    ]);
-    knowledgeContext = knowledgeResult.context;
-    sourcesUsed = knowledgeResult.sourcesUsed;
-    webContext = webResult;
-    console.log(`[Chat] 并行检索完成 - 知识库: ${knowledgeContext.length}字, 联网: ${webContext.length}字`);
+    if (isCopywriting) {
+      // 文案模式：减少知识库注入（只取2条最相关的），避免固定模板导致千篇一律
+      const [knowledgeResult, webResult] = await Promise.all([
+        gatherKnowledgeContext(userMessage, knowledgeBases, 2),
+        searchTrendingContent(userMessage),
+      ]);
+      knowledgeContext = knowledgeResult.context;
+      sourcesUsed = knowledgeResult.sourcesUsed;
+      webContext = webResult;
+      console.log(`[Chat] 文案模式并行检索完成 - 知识库: ${knowledgeContext.length}字, 联网: ${webContext.length}字`);
+    } else {
+      // 普通问答：知识库 + 联网并行
+      const [knowledgeResult, webResult] = await Promise.all([
+        gatherKnowledgeContext(userMessage, knowledgeBases),
+        searchTrendingContent(userMessage),
+      ]);
+      knowledgeContext = knowledgeResult.context;
+      sourcesUsed = knowledgeResult.sourcesUsed;
+      webContext = webResult;
+      console.log(`[Chat] 普通问答并行检索完成 - 知识库: ${knowledgeContext.length}字, 联网: ${webContext.length}字`);
+    }
 
     // 如果问题不在主题范围内，且知识库没有相关内容，直接拒绝回答
     // 文案请求始终允许（因为需要联网搜索）
