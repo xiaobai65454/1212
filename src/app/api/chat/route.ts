@@ -155,7 +155,7 @@ async function gatherKnowledgeContext(
   return { context: "", sourcesUsed: [] };
 }
 
-// 联网搜索热门内容（仅用于文案生成）
+// 联网搜索热门内容（用于文案生成和普通校园问答）
 // 缓存命中直接返回；缓存未命中时不阻塞，后台异步搜索并写入缓存供下次使用
 async function searchTrendingContent(query: string): Promise<string> {
   // 先查联网搜索缓存（24小时内有效）
@@ -263,15 +263,18 @@ function extractTags(query: string): string[] {
 
 // 构建文案生成专用的 System Prompt（精简版，减少 LLM 推理时间）
 function buildCopywritingSystemPrompt(webContext: string, knowledgeContext: string): string {
-  const basePrompt = `你是"小白白"，专精小红书/抖音校园生活文案创作。
+  const basePrompt = `你是"小白白"，专精小红书/抖音校园爆款文案。
 
-## 核心规则
-1. 第一人称学长/学姐视角，口语化+emoji，段落短小，多用"姐妹们""宝子们""学弟学妹"
-2. 标题用数字+痛点+好奇心，正文：共鸣开头→干货故事→互动结尾
-3. 禁止出现：校园卡/电话卡/办卡/微信号/二维码/虚假承诺
+## 铁律（违反则文案作废）
+- 绝对禁止：校园卡/电话卡/办卡/微信号/二维码/价格/虚假承诺
+- 不直接推销，只分享校园生活经验，产品自然带出
 
-## 格式
-- 标题 + 正文（200-400字）+ 5-10个标签 + [表情包: xxx]引流标注`;
+## 爆款公式
+- 标题：数字+痛点+好奇心（如"3个让室友以为我在凡尔赛的小习惯"）
+- 开头：3秒抓住注意力，用"姐妹们""宝子们"拉近距离
+- 正文：真实故事/经历 → 干货分享 → 互动提问结尾
+- 200-400字，短段落，多用emoji，口语化
+- 结尾：5-10个标签 + [表情包: xxx]引流标注`;
 
   let contextParts: string[] = [];
   
@@ -291,7 +294,7 @@ function buildCopywritingSystemPrompt(webContext: string, knowledgeContext: stri
 }
 
 // 构建 System Prompt（精简版，减少 token 消耗）
-function buildSystemPrompt(knowledgeContext: string): string {
+function buildSystemPrompt(knowledgeContext: string, webContext: string = ""): string {
   const basePrompt = `你是"小白白"，一位资深的流量运营导师和校园卡销售大神。
 
 ## 你的核心身份
@@ -345,11 +348,17 @@ function buildSystemPrompt(knowledgeContext: string): string {
 - 无相关内容："这个我还没学到呢，可能需要找对接人确认一下。不过你可以先[相关建议]～"
 - 无关问题："不好意思呀，这个问题我不太清楚呢。如果是关于流量运营、引流、成交话术方面的问题，我倒是可以帮你解答～"`;
 
-  if (!knowledgeContext) {
-    return basePrompt + `\n\n注意：当前没有检索到相关知识库内容，如果用户问的是具体业务问题，请诚实告知"这个我还没学到呢"。`;
+  let prompt = basePrompt;
+
+  if (webContext) {
+    prompt += `\n\n## 以下是联网搜索到的最新信息（可参考补充）\n\n${webContext}`;
   }
 
-  return basePrompt + `\n\n## 以下是从团队知识库中检索到的相关内容（优先使用这些内容回答）\n\n${knowledgeContext}\n\n---\n请基于以上知识库内容，用你自己的话回答用户的问题。如果知识库内容已经足够回答，就直接回答；如果知识库内容不足以完整回答，可以补充你的专业知识，但要标注哪些是知识库内容，哪些是你的补充。`;
+  if (!knowledgeContext) {
+    return prompt + `\n\n注意：当前没有检索到相关知识库内容，如果用户问的是具体业务问题，请诚实告知"这个我还没学到呢"。`;
+  }
+
+  return prompt + `\n\n## 以下是从团队知识库中检索到的相关内容（优先使用这些内容回答）\n\n${knowledgeContext}\n\n---\n请基于以上知识库内容，用你自己的话回答用户的问题。如果知识库内容已经足够回答，就直接回答；如果知识库内容不足以完整回答，可以补充你的专业知识，但要标注哪些是知识库内容，哪些是你的补充。`;
 }
 
 export async function POST(request: NextRequest) {
@@ -416,23 +425,16 @@ export async function POST(request: NextRequest) {
     let sourcesUsed: string[] = [];
     let webContext = "";
 
-    if (isCopywriting) {
-      // 文案模式：知识库检索 + 联网搜索并行执行，节省串行等待时间
-      console.log(`[Chat] 文案模式：知识库检索 + 联网搜索并行执行`);
-      const [knowledgeResult, webResult] = await Promise.all([
-        gatherKnowledgeContext(userMessage, knowledgeBases),
-        searchTrendingContent(userMessage),
-      ]);
-      knowledgeContext = knowledgeResult.context;
-      sourcesUsed = knowledgeResult.sourcesUsed;
-      webContext = webResult;
-      console.log(`[Chat] 并行检索完成 - 知识库: ${knowledgeContext.length}字, 联网: ${webContext.length}字`);
-    } else {
-      // 普通问答：只需知识库检索
-      const result = await gatherKnowledgeContext(userMessage, knowledgeBases);
-      knowledgeContext = result.context;
-      sourcesUsed = result.sourcesUsed;
-    }
+    // 所有请求都走知识库检索 + 联网搜索并行（联网搜索缓存优先，未命中不阻塞）
+    console.log(`[Chat] ${isCopywriting ? "文案模式" : "普通模式"}：知识库检索 + 联网搜索并行执行`);
+    const [knowledgeResult, webResult] = await Promise.all([
+      gatherKnowledgeContext(userMessage, knowledgeBases),
+      searchTrendingContent(userMessage),
+    ]);
+    knowledgeContext = knowledgeResult.context;
+    sourcesUsed = knowledgeResult.sourcesUsed;
+    webContext = webResult;
+    console.log(`[Chat] 并行检索完成 - 知识库: ${knowledgeContext.length}字, 联网: ${webContext.length}字`);
 
     // 如果问题不在主题范围内，且知识库没有相关内容，直接拒绝回答
     // 文案请求始终允许（因为需要联网搜索）
@@ -483,7 +485,7 @@ export async function POST(request: NextRequest) {
       llmStream = streamCopywritingChat(chatMessages, { temperature: 0.8, maxTokens: 1200 });
     } else {
       // 普通问答：使用知识库 + 快速模型
-      systemPrompt = buildSystemPrompt(knowledgeContext);
+      systemPrompt = buildSystemPrompt(knowledgeContext, webContext);
       
       const chatMessages: ChatMessage[] = [
         { role: "system", content: systemPrompt },
