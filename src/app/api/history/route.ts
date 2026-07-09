@@ -8,8 +8,8 @@ export async function POST(request: NextRequest) {
     const { action, question, answer } = body;
 
     if (action === "save") {
-      if (!question || !answer) {
-        return NextResponse.json({ error: "缺少问题或回答" }, { status: 400 });
+      if (!question || !answer || typeof question !== "string" || typeof answer !== "string") {
+        return NextResponse.json({ error: "问题和回答必须是字符串" }, { status: 400 });
       }
       saveToHistory(question, answer);
       return NextResponse.json({ success: true });
