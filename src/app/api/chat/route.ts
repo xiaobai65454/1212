@@ -298,7 +298,6 @@ function buildCopywritingSystemPrompt(webContext: string, knowledgeContext: stri
 
 要求：
 - 300-500字，必须有故事有细节
-- 短句为主，一句话不超过15字
 - 语气词：啊、哦、嗯、哎、吧、嘛、呢、啦
 - 允许不完整句子，用省略号
 - 会突然想到什么就加一句（用括号）
